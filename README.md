@@ -7,7 +7,7 @@ Claude Code skills for the [Slang](https://github.com/shader-slang/slang) shader
 **macOS / Linux / WSL / Git Bash:**
 
 ```bash
-git clone https://gitlab-master.nvidia.com/jvepsalainen/slang-skills.git
+git clone https://github.com/shader-slang/slang-skills.git
 cd slang-skills
 ./install.sh
 ```
@@ -15,7 +15,7 @@ cd slang-skills
 **Windows (native PowerShell):**
 
 ```powershell
-git clone https://gitlab-master.nvidia.com/jvepsalainen/slang-skills.git
+git clone https://github.com/shader-slang/slang-skills.git
 cd slang-skills
 .\install.ps1
 ```
