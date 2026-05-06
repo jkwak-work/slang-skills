@@ -225,37 +225,35 @@ the loop annotation from compile-time constants. This lets each task or kernel
 specialization opt into loop replay only where profiling proves it helps.
 
 ```slang
-interface IComponentWork
+[Differentiable]
+void doComponentWork(no_diff uint elementId, no_diff int componentId)
 {
-    [Differentiable]
-    void run(no_diff uint elementId, no_diff int componentId);
-};
+    // Put the per-component differentiable work here.
+}
 
 [Differentiable]
-void visitComponents<Work, let ComponentCount : int, let ReplayThreshold : int>(
-    Work work,
+void visitComponents<let ComponentCount : int, let ReplayThreshold : int>(
     no_diff uint elementId)
-    where Work : IComponentWork
 {
     if (ComponentCount > ReplayThreshold) {
         [MaxIters(ComponentCount)]
         for (int componentId = 0; componentId < ComponentCount; ++componentId) {
-            work.run(elementId, componentId);
+            doComponentWork(elementId, componentId);
         }
     }
     else {
         [ForceUnroll]
         for (int componentId = 0; componentId < ComponentCount; ++componentId) {
-            work.run(elementId, componentId);
+            doComponentWork(elementId, componentId);
         }
     }
 }
 
 // Keep small or sensitive call sites unrolled.
-visitComponents<SmallWork, 20, 1024>(smallWork, elementId);
+visitComponents<20, 1024>(elementId);
 
 // Replay only the specialization where 45 iterations reduced register pressure.
-visitComponents<LargeWork, 45, 44>(largeWork, elementId);
+visitComponents<45, 44>(elementId);
 ```
 
 Use this pattern when:
