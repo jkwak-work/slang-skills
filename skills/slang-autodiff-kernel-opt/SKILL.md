@@ -224,34 +224,15 @@ to switch globally to `[MaxIters]`, add a generic threshold parameter and choose
 the loop annotation from compile-time constants. This lets each task or kernel
 specialization opt into loop replay only where profiling proves it helps.
 
-```slang
-[Differentiable]
-void applyToBuffer<let N : int, let MaxItersThreshold : int>(
-    DiffTensorView output,
-    DiffTensorView input,
-    no_diff uint tid,
-    no_diff uint count)
-{
-    if (N > MaxItersThreshold) {
-        [MaxIters(N)]
-        for (int i = 0; i < N; ++i) {
-            copyOne(output, input, tid, count, i);
-        }
-    }
-    else {
-        [ForceUnroll]
-        for (int i = 0; i < N; ++i) {
-            copyOne(output, input, tid, count, i);
-        }
-    }
-}
-
-// Keep small or sensitive call sites unrolled.
-applyToBuffer<20, 1024>(output, input, tid, count);
-
-// Replay only the call site where N=45 reduced register pressure.
-applyToBuffer<45, 44>(output, input, tid, count);
-```
+Implementation sketch:
+- Add a generic threshold parameter to the shared helper, for example
+  `Helper<TripCount, ReplayThreshold>`.
+- Inside the helper, use `[MaxIters(TripCount)]` when
+  `TripCount > ReplayThreshold`; otherwise keep `[ForceUnroll]`.
+- For call sites that should stay unrolled, pass a conservative high threshold
+  such as `1024`.
+- For the specific large-loop specialization that benefits from replay, pass a
+  threshold just below its trip count, such as `44` for a 45-iteration loop.
 
 Use this pattern when:
 - A global `[MaxIters]` change improves one kernel but regresses another.
