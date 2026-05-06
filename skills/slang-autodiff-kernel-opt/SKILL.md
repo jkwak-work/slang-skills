@@ -4,7 +4,8 @@ description: >-
   Optimize Slang autodiff backward kernel performance by analyzing register
   pressure, checkpoint storage, and spills. Use when investigating slow
   backward kernels, removing custom [BackwardDerivativeOf] functions, or
-  reducing register pressure in differentiable GPU code.
+  reducing register pressure in differentiable GPU code, including tuning
+  [ForceUnroll] versus [MaxIters] loop behavior per call site.
 ---
 
 # Autodiff Kernel Optimization
@@ -217,6 +218,51 @@ registers without spilling.
 | Large N, causes spills with ForceUnroll | `[MaxIters(N)]` |
 | Small N, no spills | `[ForceUnroll]` |
 | N varies across specializations | Profile both |
+
+**Per-call threshold pattern.** If a shared differentiable helper is not easy
+to switch globally to `[MaxIters]`, add a generic threshold parameter and choose
+the loop annotation from compile-time constants. This lets each task or kernel
+specialization opt into loop replay only where profiling proves it helps.
+
+```slang
+[Differentiable]
+void applyToBuffer<let N : int, let MaxItersThreshold : int>(
+    DiffTensorView output,
+    DiffTensorView input,
+    no_diff uint tid,
+    no_diff uint count)
+{
+    if (N > MaxItersThreshold) {
+        [MaxIters(N)]
+        for (int i = 0; i < N; ++i) {
+            copyOne(output, input, tid, count, i);
+        }
+    }
+    else {
+        [ForceUnroll]
+        for (int i = 0; i < N; ++i) {
+            copyOne(output, input, tid, count, i);
+        }
+    }
+}
+
+// Keep small or sensitive call sites unrolled.
+applyToBuffer<20, 1024>(output, input, tid, count);
+
+// Replay only the call site where N=45 reduced register pressure.
+applyToBuffer<45, 44>(output, input, tid, count);
+```
+
+Use this pattern when:
+- A global `[MaxIters]` change improves one kernel but regresses another.
+- The same helper is instantiated by multiple tasks with different register
+  pressure, occupancy, or checkpoint behavior.
+- You need to preserve manual-backward parity for some call sites while
+  improving a large-loop specialization.
+
+Benchmark each threshold candidate. In practice, a threshold just below the
+problematic loop trip count, such as `44` for a 45-element copy, can isolate the
+benefit while leaving other specializations on the original unrolled path.
 
 ### Strategy 3: Eliminate redundant loop-carried variables
 
