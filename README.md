@@ -1,6 +1,6 @@
 # slang-skills
 
-Claude Code skills for the [Slang](https://github.com/shader-slang/slang) shader compiler. Provides interactive installation of reusable skills to your `~/.claude/skills/` directory.
+Experimental skills for AI tools for the [Slang](https://github.com/shader-slang/slang) shader compiler. Provides interactive installation of reusable skills to your `~/.claude/skills/` directory.
 
 ## Quick Start
 
