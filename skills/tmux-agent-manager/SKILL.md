@@ -146,13 +146,14 @@ PREV_PANE_DIR="${HOME}/.cache/tmux-agent-manager/prev_pane"
 mkdir -p "$PREV_PANE_DIR"
 
 # Each iteration, after capturing current_tail for SESSION:
-prev_tail=$(cat "$PREV_PANE_DIR/$SESSION" 2>/dev/null || echo "")
+SAFE_SESSION=$(echo "$SESSION" | sed 's/[^a-zA-Z0-9]/_/g')
+prev_tail=$(cat "$PREV_PANE_DIR/$SAFE_SESSION" 2>/dev/null || echo "")
 
 if [ "$current_tail" = "$prev_tail" ] && [ "$state" != "idle" ]; then
     state="stuck"
 fi
 
-echo "$current_tail" > "$PREV_PANE_DIR/$SESSION"
+printf "%s\n" "$current_tail" > "$PREV_PANE_DIR/$SAFE_SESSION"
 ```
 
 On the first iteration the file does not exist, so `prev_tail` is empty and no session is classified as `stuck` initially.
@@ -247,6 +248,7 @@ else
     TMP_PAYLOAD=$(mktemp /tmp/agent_send_msg.XXXXXX)
     printf "%s" "MESSAGE" > "$TMP_PAYLOAD"
 fi
+PRE_SEND_TAIL=$($TMUX_EXEC capture-pane -t "SESSION:0.0" -p | tail -20)
 $TMUX_EXEC load-buffer "$TMP_PAYLOAD"
 $TMUX_EXEC paste-buffer -t "SESSION:0.0"
 # Wait for the paste to land in the terminal before sending Enter.
@@ -378,8 +380,8 @@ while attempt <= MAX_RETRIES:
         continue
 
     if state == idle:
-        if attempt == 1:
-            # The pane looks unchanged — paste may have failed silently.
+        if attempt == 1 and tail == PRE_SEND_TAIL:
+            # Pane matches pre-send snapshot — paste failed silently.
             # Retry the full send sequence before giving up.
             $TMUX_EXEC load-buffer "$TMP_PAYLOAD"
             $TMUX_EXEC paste-buffer -t "SESSION:0.0"
@@ -387,6 +389,11 @@ while attempt <= MAX_RETRIES:
             $TMUX_EXEC send-keys -t "SESSION:0.0" Enter
             attempt += 1
             continue
+        elif attempt == 1 and tail != PRE_SEND_TAIL:
+            # Pane changed from pre-send — command ran and completed quickly.
+            report "✓ Message queued — agent completed the task quickly."
+            rm -f "$TMP_PAYLOAD"
+            return
         else:
             # Second idle after retry — give up and report.
             ALERT: "⚠ Message delivery to SESSION failed after $MAX_RETRIES attempts.
@@ -532,7 +539,7 @@ When command is `new <args>`:
 
 **Issue number path:**
 ```bash
-gh issue view <number> --repo <REPO> --json number,title,body,labels
+gh issue view <number> --repo "$REPO" --json number,title,body,labels
 ```
 - `slug` ← from `title`
 - `branch prefix` ← labels: "bug"/"crash" → `fix/`; "feature"/"enhancement" → `feature/`; else `fix/`
