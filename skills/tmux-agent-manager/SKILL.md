@@ -142,7 +142,7 @@ $TMUX_EXEC capture-pane -t "SESSION:W.P" -p | tail -35
 Store per-session snapshots in a temp directory (portable; avoids `declare -A` which requires Bash 4.0+ and is unavailable on macOS's default Bash 3.2):
 
 ```bash
-PREV_PANE_DIR="${HOME:-~}/.cache/tmux-agent-manager/prev_pane"
+PREV_PANE_DIR="${HOME}/.cache/tmux-agent-manager/prev_pane"
 mkdir -p "$PREV_PANE_DIR"
 
 # Each iteration, after capturing current_tail for SESSION:
@@ -191,8 +191,8 @@ wgsl-require-bab-load     needs_approval  ⚠ blocked  Waiting for permission pr
 fix-lambda-capture        working         ~2 min     Editing source/slang/slang-check-expr.cpp
 ```
 
-Sessions created by Step 7 are capped at 20 chars. Sessions started outside this
-skill may have longer names — truncate display names to 20 chars with `…` as needed
+Sessions created by Step 7 are capped at 40 chars. Sessions started outside this
+skill may have longer names — truncate display names to 40 chars with `…` as needed
 for table alignment. SUMMARY = last meaningful agent output line.
 
 **YOLO mode warning** — after the table, list every session whose `YOLO_MODE` is `normal`
@@ -242,14 +242,10 @@ Execution order: **4a** (pre-send checks) → **send** → **4b** (confirm deliv
 ```bash
 if [ "$HOST" = "windows" ]; then
     TMP_PAYLOAD=$(wsl mktemp /tmp/agent_send_msg.XXXXXX)
-    wsl bash -c "cat > '$TMP_PAYLOAD'" << 'MSG'
-MESSAGE
-MSG
+    printf "%s" "MESSAGE" | wsl bash -c "cat > '$TMP_PAYLOAD'"
 else
     TMP_PAYLOAD=$(mktemp /tmp/agent_send_msg.XXXXXX)
-    cat > "$TMP_PAYLOAD" << 'MSG'
-MESSAGE
-MSG
+    printf "%s" "MESSAGE" > "$TMP_PAYLOAD"
 fi
 $TMUX_EXEC load-buffer "$TMP_PAYLOAD"
 $TMUX_EXEC paste-buffer -t "SESSION:0.0"
@@ -548,10 +544,10 @@ gh issue view <number> --repo <REPO> --json number,title,body,labels
 - Claude prompt: the user's prompt verbatim + instruction to test and commit
 
 **Slug rule:** lowercase → replace runs of non-alphanumeric chars with `-` → collapse
-consecutive `-` → strip leading/trailing `-` → truncate to 20 chars → strip any
+consecutive `-` → strip leading/trailing `-` → truncate to 40 chars → strip any
 trailing `-` left by the truncation.
 
-Keep the most meaningful words (usually the first few): a 20-char slug must still be
+Keep the most meaningful words (usually the first few): a 40-char slug must still be
 recognisable at a glance without needing further truncation in the status table.
 
 Full branch: `<prefix><slug>` (e.g. `fix/getTypeNameHint-cr`)
@@ -658,14 +654,10 @@ Write to a temp file to safely handle newlines and special characters:
 ```bash
 if [ "$HOST" = "windows" ]; then
     TMP_PAYLOAD=$(wsl mktemp /tmp/agent_prompt_<slug>.XXXXXX)
-    wsl bash -c "cat > '$TMP_PAYLOAD'" << 'PROMPT'
-<composed prompt text>
-PROMPT
+    printf "%s" "<composed prompt text>" | wsl bash -c "cat > '$TMP_PAYLOAD'"
 else
     TMP_PAYLOAD=$(mktemp /tmp/agent_prompt_<slug>.XXXXXX)
-    cat > "$TMP_PAYLOAD" << 'PROMPT'
-<composed prompt text>
-PROMPT
+    printf "%s" "<composed prompt text>" > "$TMP_PAYLOAD"
 fi
 
 $TMUX_EXEC load-buffer "$TMP_PAYLOAD"
@@ -691,7 +683,7 @@ Use `WORKING_GRACE=30` for new sessions since Claude Code takes a moment to star
 
 ## Notes
 
-- Session names are capped at 20 chars by the slug rule in Step 7a
+- Session names are capped at 40 chars by the slug rule in Step 7a
 - The Claude Code pane is always window 0, pane 0 unless the user specifies otherwise
 - When a session has multiple windows, check window 0 for the agent; note other windows
   separately if they show interesting activity (build output, test results)
