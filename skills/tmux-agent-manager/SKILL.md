@@ -105,12 +105,12 @@ a model-info line, or the `›` prompt pattern expected by Step 2. Discard sessi
 that show none of these — they are unrelated tmux sessions and must not be targeted
 for status classification, sends, or implicit target resolution.
 
-Capture the last 100 lines of each candidate and test against the agent-marker regex:
+Capture 250 lines of scrollback from each candidate and test against the agent-marker regex. Using scrollback ensures startup markers aren't lost even after verbose output, and including working-state markers catches busy sessions:
 
 ```bash
-tail_output=$($TMUX_EXEC capture-pane -t "SESSION:0.0" -p | tail -100)
+tail_output=$($TMUX_EXEC capture-pane -t "SESSION:0.0" -p -S -250 | tail -250)
 echo "$tail_output" \
-  | grep -qE "(Claude Code|Codex|Model: claude-|›.*claude-|^›[[:space:]]*$)" \
+  | grep -qE "(Claude Code|Codex|Model: claude-|›.*claude-|^›[[:space:]]*$|• (Ran|Read|Writing|Searching))" \
   && echo "AGENT" || echo "NOT_AGENT"
 ```
 
@@ -120,10 +120,10 @@ Discard any session that returns `NOT_AGENT`.
 
 ## Step 2 — Capture pane state
 
-For each pane target `SESSION:W.P`, capture the last 100 lines:
+For each pane target `SESSION:W.P`, capture 250 lines of scrollback (so the `─ Worked for` separator and other signals aren't lost after verbose output):
 
 ```bash
-$TMUX_EXEC capture-pane -t "SESSION:W.P" -p | tail -100
+$TMUX_EXEC capture-pane -t "SESSION:W.P" -p -S -250 | tail -250
 ```
 
 **State detection rules** (apply to the captured tail):
@@ -243,14 +243,14 @@ Execution order: **4a** (pre-send checks) → **send** → **4b** (confirm deliv
 ```bash
 if [ "$HOST" = "windows" ]; then
     TMP_PAYLOAD=$(wsl mktemp /tmp/agent_send_msg.XXXXXX)
-    wsl bash -c "cat > '$TMP_PAYLOAD'" << 'EOF'
+    wsl bash -c "cat > '$TMP_PAYLOAD'" << 'EOF_TMUX_AGENT'
 MESSAGE
-EOF
+EOF_TMUX_AGENT
 else
     TMP_PAYLOAD=$(mktemp /tmp/agent_send_msg.XXXXXX)
-    cat > "$TMP_PAYLOAD" << 'EOF'
+    cat > "$TMP_PAYLOAD" << 'EOF_TMUX_AGENT'
 MESSAGE
-EOF
+EOF_TMUX_AGENT
 fi
 PRE_SEND_TAIL=$($TMUX_EXEC capture-pane -t "SESSION:0.0" -p | tail -20)
 $TMUX_EXEC load-buffer "$TMP_PAYLOAD"
@@ -449,7 +449,7 @@ elapsed = 0
 saw_working = false
 
 loop every CHECK_INTERVAL until elapsed >= MAX_WAIT:
-    capture last 100 lines of SESSION:0.0
+    capture 250 lines of scrollback from SESSION:0.0
     classify state (idle / working / needs_approval / unknown)
 
     if state == needs_approval:
@@ -495,7 +495,7 @@ report "✓ SESSION is still working after MAX_WAIT s — no attention needed."
 When emitting an alert, always include:
 - Session name
 - Detected state
-- The last 100 lines of the pane so the user can see the exact prompt or error
+- The last 250 lines of scrollback so the user can see the exact prompt or error
 
 ### After an alert
 
@@ -669,14 +669,14 @@ Write to a temp file to safely handle newlines and special characters:
 ```bash
 if [ "$HOST" = "windows" ]; then
     TMP_PAYLOAD=$(wsl mktemp /tmp/agent_prompt_<slug>.XXXXXX)
-    wsl bash -c "cat > '$TMP_PAYLOAD'" << 'EOF'
+    wsl bash -c "cat > '$TMP_PAYLOAD'" << 'EOF_TMUX_AGENT'
 <composed prompt text>
-EOF
+EOF_TMUX_AGENT
 else
     TMP_PAYLOAD=$(mktemp /tmp/agent_prompt_<slug>.XXXXXX)
-    cat > "$TMP_PAYLOAD" << 'EOF'
+    cat > "$TMP_PAYLOAD" << 'EOF_TMUX_AGENT'
 <composed prompt text>
-EOF
+EOF_TMUX_AGENT
 fi
 
 $TMUX_EXEC load-buffer "$TMP_PAYLOAD"
