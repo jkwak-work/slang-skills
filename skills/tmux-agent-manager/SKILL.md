@@ -142,7 +142,7 @@ $TMUX_EXEC capture-pane -t "SESSION:W.P" -p | tail -35
 Store per-session snapshots in a temp directory (portable; avoids `declare -A` which requires Bash 4.0+ and is unavailable on macOS's default Bash 3.2):
 
 ```bash
-PREV_PANE_DIR="/tmp/agent_prev_pane_$(whoami 2>/dev/null || echo 'default')"
+PREV_PANE_DIR="${HOME:-~}/.cache/tmux-agent-manager/prev_pane"
 mkdir -p "$PREV_PANE_DIR"
 
 # Each iteration, after capturing current_tail for SESSION:
@@ -241,12 +241,12 @@ Execution order: **4a** (pre-send checks) → **send** → **4b** (confirm deliv
 
 ```bash
 if [ "$HOST" = "windows" ]; then
-    TMP_PAYLOAD=$(wsl mktemp /tmp/agent_send_msg.XXXXXX.txt)
+    TMP_PAYLOAD=$(wsl mktemp /tmp/agent_send_msg.XXXXXX)
     wsl bash -c "cat > '$TMP_PAYLOAD'" << 'MSG'
 MESSAGE
 MSG
 else
-    TMP_PAYLOAD=$(mktemp /tmp/agent_send_msg.XXXXXX.txt)
+    TMP_PAYLOAD=$(mktemp /tmp/agent_send_msg.XXXXXX)
     cat > "$TMP_PAYLOAD" << 'MSG'
 MESSAGE
 MSG
@@ -577,9 +577,8 @@ fi
 PARENT_SHELL=$(dirname "$MAIN_SHELL")          # sibling worktrees live here
 PARENT_NATIVE=$(dirname "$MAIN_NATIVE")
 
-# Derive GitHub repo (owner/name) from remote URL
-REPO=$($GIT -C "$MAIN_SHELL" remote get-url origin 2>/dev/null \
-    | sed 's|.*github\.com[:/]\(.*\)\.git$|\1|; s|.*github\.com[:/]\(.*\)|\1|; s|/*$||')
+# Derive GitHub repo (owner/name) via gh CLI (robust across URL formats)
+REPO=$(cd "$MAIN_SHELL" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
 ```
 
 New worktree paths:
@@ -658,12 +657,12 @@ Write to a temp file to safely handle newlines and special characters:
 
 ```bash
 if [ "$HOST" = "windows" ]; then
-    TMP_PAYLOAD=$(wsl mktemp /tmp/agent_prompt_<slug>.XXXXXX.txt)
+    TMP_PAYLOAD=$(wsl mktemp /tmp/agent_prompt_<slug>.XXXXXX)
     wsl bash -c "cat > '$TMP_PAYLOAD'" << 'PROMPT'
 <composed prompt text>
 PROMPT
 else
-    TMP_PAYLOAD=$(mktemp /tmp/agent_prompt_<slug>.XXXXXX.txt)
+    TMP_PAYLOAD=$(mktemp /tmp/agent_prompt_<slug>.XXXXXX)
     cat > "$TMP_PAYLOAD" << 'PROMPT'
 <composed prompt text>
 PROMPT
