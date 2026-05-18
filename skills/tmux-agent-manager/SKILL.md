@@ -186,10 +186,10 @@ For each session, also check whether Claude Code was started with
 `--dangerously-skip-permissions`. Without this flag, every tool call triggers a
 permission prompt and the agent will stall repeatedly.
 
-Scan the last 200 lines of the pane scrollback (which usually includes the startup banner):
+Scan the full pane scrollback (the startup banner may have scrolled far back in long-running sessions):
 
 ```bash
-$TMUX_EXEC capture-pane -t "SESSION:0.0" -p -S -200 \
+$TMUX_EXEC capture-pane -t "$SESSION:0.0" -p -S - \
   | grep -qE "dangerously-skip-permissions|Bypassing permission" \
   && echo "yolo" || echo "normal"
 ```
@@ -287,8 +287,9 @@ MESSAGE
 EOF_TMUX_AGENT
 fi
 PRE_SEND_TAIL=$($TMUX_EXEC capture-pane -t "SESSION:0.0" -p | tail -20)
-$TMUX_EXEC load-buffer "$TMP_PAYLOAD"
-$TMUX_EXEC paste-buffer -t "SESSION:0.0"
+$TMUX_EXEC load-buffer -b "agent_msg_$SESSION" "$TMP_PAYLOAD"
+$TMUX_EXEC paste-buffer -b "agent_msg_$SESSION" -t "SESSION:0.0"
+$TMUX_EXEC delete-buffer -b "agent_msg_$SESSION"
 # Wait for the paste to land in the terminal before sending Enter.
 # paste-buffer is async — sending Enter immediately risks the keystroke
 # arriving before the pasted text and being swallowed.
@@ -421,8 +422,9 @@ while attempt <= MAX_RETRIES:
         if attempt == 1 and tail == PRE_SEND_TAIL:
             # Pane matches pre-send snapshot — paste failed silently.
             # Retry the full send sequence before giving up.
-            $TMUX_EXEC load-buffer "$TMP_PAYLOAD"
-            $TMUX_EXEC paste-buffer -t "SESSION:0.0"
+            $TMUX_EXEC load-buffer -b "agent_msg_$SESSION" "$TMP_PAYLOAD"
+            $TMUX_EXEC paste-buffer -b "agent_msg_$SESSION" -t "SESSION:0.0"
+            $TMUX_EXEC delete-buffer -b "agent_msg_$SESSION"
             sleep 1
             $TMUX_EXEC send-keys -t "SESSION:0.0" Enter
             attempt += 1
@@ -651,12 +653,11 @@ $GIT -C "$MAIN_NATIVE" worktree add "$PARENT_NATIVE/<slug>" -b "<branch>"
 
 ### 7e — Initialize submodules with local reference
 
-`--reference` points git at the main worktree's object store so it copies blobs
-locally instead of downloading them again — much faster on large repos:
+In a git worktree, submodules already share the object store of the primary repository (`.git/modules` in the main worktree), so no `--reference` flag is needed:
 
 ```bash
 cd "$PARENT_SHELL/<slug>"
-$GIT submodule update --init --recursive --reference "$MAIN_NATIVE"
+$GIT submodule update --init --recursive
 ```
 
 Tell the user this step is running; it may take up to a minute the first time.
@@ -719,8 +720,9 @@ else
 EOF_TMUX_AGENT
 fi
 
-$TMUX_EXEC load-buffer "$TMP_PAYLOAD"
-$TMUX_EXEC paste-buffer -t "<slug>:0.0"
+$TMUX_EXEC load-buffer -b "agent_prompt_<slug>" "$TMP_PAYLOAD"
+$TMUX_EXEC paste-buffer -b "agent_prompt_<slug>" -t "<slug>:0.0"
+$TMUX_EXEC delete-buffer -b "agent_prompt_<slug>"
 sleep 1
 $TMUX_EXEC send-keys -t "<slug>:0.0" Enter
 # Do NOT rm TMP_PAYLOAD here — Step 4b may need it for a retry.
