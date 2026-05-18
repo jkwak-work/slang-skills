@@ -139,22 +139,23 @@ $TMUX_EXEC capture-pane -t "SESSION:W.P" -p | tail -35
 
 **Stuck detection — state management** (monitor-loop only):
 
-Maintain an associative array `PREV_PANE` indexed by session name, initialized before the loop:
+Store per-session snapshots in a temp directory (portable; avoids `declare -A` which requires Bash 4.0+ and is unavailable on macOS's default Bash 3.2):
 
 ```bash
-declare -A PREV_PANE
+PREV_PANE_DIR=$(mktemp -d /tmp/agent_prev_pane.XXXXXX)
+trap 'rm -rf "$PREV_PANE_DIR"' EXIT
 
 # Each iteration, after capturing current_tail for SESSION:
-prev_tail="${PREV_PANE[SESSION]}"
+prev_tail=$(cat "$PREV_PANE_DIR/$SESSION" 2>/dev/null || echo "")
 
 if [ "$current_tail" = "$prev_tail" ] && [ "$state" != "idle" ]; then
     state="stuck"
 fi
 
-PREV_PANE[SESSION]="$current_tail"
+echo "$current_tail" > "$PREV_PANE_DIR/$SESSION"
 ```
 
-On the first iteration `PREV_PANE` is empty, so no session is classified as `stuck` initially.
+On the first iteration the file does not exist, so `prev_tail` is empty and no session is classified as `stuck` initially.
 
 ### YOLO mode detection
 
@@ -182,7 +183,7 @@ Store the result per session as `YOLO_MODE=yolo|normal`.
 
 Present a compact table, one row per session:
 
-```
+```text
 SESSION                   STATE           ETA        SUMMARY
 add-skill-to-resolve-…    idle            —          Pushed commit 326730bd — waiting for next instruction
 descheap-for-raytracing   working         ~20 min    Running slang-test on descriptor-heap-acceleration-structure.slang
@@ -197,7 +198,7 @@ for table alignment. SUMMARY = last meaningful agent output line.
 **YOLO mode warning** — after the table, list every session whose `YOLO_MODE` is `normal`
 as a dedicated warning block:
 
-```
+```text
 ⚠ The following sessions are NOT running with --dangerously-skip-permissions:
   • <session-name>
   • <session-name>
@@ -241,12 +242,15 @@ Execution order: **4a** (pre-send checks) → **send** → **4b** (confirm deliv
 ```bash
 if [ "$HOST" = "windows" ]; then
     TMP_PAYLOAD=$(wsl mktemp /tmp/agent_send_msg.XXXXXX.txt)
-else
-    TMP_PAYLOAD=$(mktemp /tmp/agent_send_msg.XXXXXX.txt)
-fi
-cat > "$TMP_PAYLOAD" << 'MSG'
+    wsl bash -c "cat > '$TMP_PAYLOAD'" << 'MSG'
 MESSAGE
 MSG
+else
+    TMP_PAYLOAD=$(mktemp /tmp/agent_send_msg.XXXXXX.txt)
+    cat > "$TMP_PAYLOAD" << 'MSG'
+MESSAGE
+MSG
+fi
 $TMUX_EXEC load-buffer "$TMP_PAYLOAD"
 $TMUX_EXEC paste-buffer -t "SESSION:0.0"
 # Wait for the paste to land in the terminal before sending Enter.
@@ -281,8 +285,10 @@ Capture the session name and last 10 lines of pane 0.0 for each session.
 
 **Case A — Session name was provided explicitly** (user wrote `send <name> <message>`):
 
-1. Check that `<name>` exactly matches an active session. If not, list the active sessions
-   and tell the user no session called `<name>` exists — **stop, do not send**.
+1. Check that `<name>` exactly matches an active **agent** session (one that passed Step 1
+   marker filtering). If not, list the active agent sessions and stop — **do not send**.
+   If `<name>` exists in tmux but is `NOT_AGENT`, explicitly report that it is not a
+   Claude/Codex agent pane and stop.
 2. Continue to the mismatch check in 4a-iii.
 
 **Case B — Implicit-target form** (`send <message>` with no session token):
@@ -354,7 +360,7 @@ Run this immediately after the send block in Step 4, before Step 4c.
 
 ### Algorithm
 
-```
+```text
 attempt = 1
 
 while attempt <= MAX_RETRIES:
@@ -431,7 +437,7 @@ WORKING_GRACE=30  # new sessions need more time to initialize
 
 ### Algorithm
 
-```
+```text
 elapsed = 0
 saw_working = false
 
@@ -555,7 +561,7 @@ Run this inside a single shell call (adapt prefix for HOST):
 
 ```bash
 # Get the main worktree path (first entry — always the primary checkout)
-MAIN_NATIVE=$($GIT worktree list --porcelain | awk '/^worktree/{print $2; exit}')
+MAIN_NATIVE=$($GIT worktree list --porcelain | sed -n 's/^worktree //p' | head -n 1 | tr -d '\r')
 
 # Convert to the shell's native path if needed
 if [ "$HOST" = "wsl_inside" ]; then
@@ -638,7 +644,7 @@ $TMUX_EXEC capture-pane -t "<slug>:0.0" -p -S -200 \
 
 If the result is `normal`, emit a warning and continue immediately to Step 7h:
 
-```
+```text
 ⚠ Session '<slug>' is NOT running with --dangerously-skip-permissions.
   The agent will pause and request approval for every tool call.
   To fix: kill this session and restart claude with --dangerously-skip-permissions.
@@ -651,12 +657,15 @@ Write to a temp file to safely handle newlines and special characters:
 ```bash
 if [ "$HOST" = "windows" ]; then
     TMP_PAYLOAD=$(wsl mktemp /tmp/agent_prompt_<slug>.XXXXXX.txt)
-else
-    TMP_PAYLOAD=$(mktemp /tmp/agent_prompt_<slug>.XXXXXX.txt)
-fi
-cat > "$TMP_PAYLOAD" << 'PROMPT'
+    wsl bash -c "cat > '$TMP_PAYLOAD'" << 'PROMPT'
 <composed prompt text>
 PROMPT
+else
+    TMP_PAYLOAD=$(mktemp /tmp/agent_prompt_<slug>.XXXXXX.txt)
+    cat > "$TMP_PAYLOAD" << 'PROMPT'
+<composed prompt text>
+PROMPT
+fi
 
 $TMUX_EXEC load-buffer "$TMP_PAYLOAD"
 $TMUX_EXEC paste-buffer -t "<slug>:0.0"
