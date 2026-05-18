@@ -149,7 +149,7 @@ mkdir -p "$PREV_PANE_DIR"
 SAFE_SESSION=$(echo "$SESSION" | sed 's/[^a-zA-Z0-9]/_/g')
 prev_tail=$(cat "$PREV_PANE_DIR/$SAFE_SESSION" 2>/dev/null || echo "")
 
-if [ -n "$prev_tail" ] && [ "$current_tail" = "$prev_tail" ] && [ "$state" != "idle" ]; then
+if [ -n "$prev_tail" ] && [ "$current_tail" = "$prev_tail" ] && [ "$state" != "idle" ] && [ "$state" != "needs_approval" ]; then
     state="stuck"
 fi
 
