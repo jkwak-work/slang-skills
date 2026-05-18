@@ -56,7 +56,7 @@ fi
 echo "TMUX_EXEC=$TMUX_EXEC SH=$SH HOST=$HOST GIT=$GIT"
 ```
 
-Re-declare `TMUX_EXEC`, `SH`, `HOST`, and `GIT` at the top of every subsequent
+Re-declare `TMUX_EXEC`, `SH`, `HOST`, `GIT`, and `PREV_PANE_DIR` at the top of every subsequent
 bash block that needs them, using the values printed above.
 
 **Variable reference used in all steps below:**
@@ -149,7 +149,7 @@ mkdir -p "$PREV_PANE_DIR"
 SAFE_SESSION=$(echo "$SESSION" | sed 's/[^a-zA-Z0-9]/_/g')
 prev_tail=$(cat "$PREV_PANE_DIR/$SAFE_SESSION" 2>/dev/null || echo "")
 
-if [ "$current_tail" = "$prev_tail" ] && [ "$state" != "idle" ]; then
+if [ -n "$prev_tail" ] && [ "$current_tail" = "$prev_tail" ] && [ "$state" != "idle" ]; then
     state="stuck"
 fi
 
@@ -586,6 +586,10 @@ PARENT_NATIVE=$(dirname "$MAIN_NATIVE")
 
 # Derive GitHub repo (owner/name) via gh CLI (robust across URL formats)
 REPO=$(cd "$MAIN_SHELL" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
+if [ -z "$REPO" ]; then
+    echo "Error: could not determine GitHub repository. Ensure gh is authenticated and the directory is a GitHub repo."
+    exit 1
+fi
 ```
 
 New worktree paths:
