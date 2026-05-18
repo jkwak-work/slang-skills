@@ -105,6 +105,17 @@ a model-info line, or the `›` prompt pattern expected by Step 2. Discard sessi
 that show none of these — they are unrelated tmux sessions and must not be targeted
 for status classification, sends, or implicit target resolution.
 
+Capture the last 35 lines of each candidate and test against the agent-marker regex:
+
+```bash
+tail_output=$($TMUX_EXEC capture-pane -t "SESSION:0.0" -p | tail -35)
+echo "$tail_output" \
+  | grep -qE "(Claude Code|Codex|Model: claude-|›.*claude-|^›[[:space:]]*$)" \
+  && echo "AGENT" || echo "NOT_AGENT"
+```
+
+Discard any session that returns `NOT_AGENT`.
+
 ---
 
 ## Step 2 — Capture pane state
@@ -125,6 +136,25 @@ $TMUX_EXEC capture-pane -t "SESSION:W.P" -p | tail -35
 | `pending_message` | `›` prompt followed by user message text (received but not yet processed) |
 | `stuck` | Pane content identical across two consecutive polls AND state is not `idle`; **monitor-loop only** — store previous pane snapshot in `PREV_PANE`; compare with current snapshot on each iteration; if unchanged and state ≠ `idle`, classify as `stuck` |
 | `unknown` | None of the above — treat as working |
+
+**Stuck detection — state management** (monitor-loop only):
+
+Maintain an associative array `PREV_PANE` indexed by session name, initialized before the loop:
+
+```bash
+declare -A PREV_PANE
+
+# Each iteration, after capturing current_tail for SESSION:
+prev_tail="${PREV_PANE[SESSION]}"
+
+if [ "$current_tail" = "$prev_tail" ] && [ "$state" != "idle" ]; then
+    state="stuck"
+fi
+
+PREV_PANE[SESSION]="$current_tail"
+```
+
+On the first iteration `PREV_PANE` is empty, so no session is classified as `stuck` initially.
 
 ### YOLO mode detection
 
@@ -391,6 +421,13 @@ and the initial prompt sent in Step 7h for new sessions.
 | `CHECK_INTERVAL` | 10 s | Seconds between pane polls |
 | `MAX_WAIT` | 120 s | Stop monitoring after this many seconds |
 | `WORKING_GRACE` | 20 s | Seconds after send before an `idle` return triggers an alert |
+
+**Parameter overrides**: declare the variable before running the algorithm. For example, Step 7h uses a longer grace period for freshly-started sessions:
+
+```bash
+WORKING_GRACE=30  # new sessions need more time to initialize
+# then run Step 4c algorithm
+```
 
 ### Algorithm
 
