@@ -168,7 +168,7 @@ PREV_PANE_DIR="${HOME}/.cache/tmux-agent-manager/prev_pane"
 mkdir -p "$PREV_PANE_DIR"
 
 # Each iteration, after capturing current_tail for SESSION:
-SAFE_SESSION=$(echo "$SESSION" | sed 's/[^a-zA-Z0-9]/_/g')
+SAFE_SESSION=$(echo "$SESSION" | sed 's/[^a-zA-Z0-9.-]/_/g')
 prev_tail=$(cat "$PREV_PANE_DIR/$SAFE_SESSION" 2>/dev/null || echo "")
 
 if [ -n "$prev_tail" ] && [ "$current_tail" = "$prev_tail" ] && [ "$state" != "idle" ] && [ "$state" != "needs_approval" ]; then
@@ -203,7 +203,7 @@ Store the result per session using the same file-based pattern as `PREV_PANE_DIR
 ```bash
 YOLO_MODE_DIR="${HOME}/.cache/tmux-agent-manager/yolo_mode"
 mkdir -p "$YOLO_MODE_DIR"
-SAFE_SESSION=$(echo "$SESSION" | sed 's/[^a-zA-Z0-9]/_/g')
+SAFE_SESSION=$(echo "$SESSION" | sed 's/[^a-zA-Z0-9.-]/_/g')
 echo "yolo_or_normal" > "$YOLO_MODE_DIR/$SAFE_SESSION"
 ```
 
@@ -611,7 +611,7 @@ fi
 if [ "$HOST" = "wsl_inside" ]; then
     MAIN_SHELL=$(wslpath "$MAIN_NATIVE")       # D:/foo → /mnt/d/foo
 elif [ "$HOST" = "windows" ]; then
-    MAIN_SHELL=$(wsl wslpath "$MAIN_NATIVE")   # D:/foo → /mnt/d/foo (for wsl tmux calls)
+    MAIN_SHELL="$MAIN_NATIVE"                  # Git Bash handles Windows paths; convert to WSL path at call sites that need it
 else
     MAIN_SHELL="$MAIN_NATIVE"                  # already a POSIX path
 fi
