@@ -40,7 +40,14 @@ git status --short
 gh pr view "$PR" --json number,title,url,baseRefName,headRefName,headRepository,headRepositoryOwner,mergeStateStatus,isDraft
 ```
 
-Do not overwrite unrelated local changes. If the worktree is dirty, inspect the changes and preserve the user's work.
+If `git status --short` shows any output, **stop and ask the user** how to proceed before continuing. Do not commit, stash, or discard anything automatically. Present the list of changed/untracked files and offer these options:
+
+1. **Commit all changes** — ask for a commit message, then `git add -A && git commit -m "<message>"`.
+2. **Commit only staged changes** — if `git diff --cached --name-only` is non-empty, ask for a commit message, then `git commit -m "<message>"` (leaves unstaged changes untouched).
+3. **Stash changes** — run `git stash push -m "slang-resolve-pr-comments stash"` to set them aside, then proceed with the current HEAD.
+4. **Abort** — stop the skill so the user can handle the changes manually.
+
+Wait for the user's choice before continuing.
 
 ## Main Loop
 
@@ -150,7 +157,7 @@ query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
 
 Classify threads conservatively:
 
-- **LLM review feedback**: the author's `__typename` is `Bot` (from the GraphQL response), or the author is clearly an automated LLM reviewer by login — such as Copilot, CodeRabbit, Claude, Codex, OpenAI, or another bot whose comment identifies itself as AI review feedback.
+- **LLM review feedback**: the author's `__typename` is `Bot` (from the GraphQL response), or the author is clearly an automated LLM reviewer by login — such as Copilot, CodeRabbit, Claude, Codex, OpenAI, Gemini, Greptile or another bot whose comment identifies itself as AI review feedback.
 - **Human feedback**: the author is a person, the `author` field is `null` (deleted account — treat as human to be safe), or the source is ambiguous.
 - **CI/static-analysis bot output**: handle it as CI feedback unless it is clearly an LLM review thread.
 
