@@ -428,7 +428,7 @@ while attempt <= MAX_RETRIES:
     if state == working or state == needs_approval or state == unknown:
         # Agent received the message and is acting on it (or needs approval).
         report "✓ Message queued — agent is processing."
-        rm -f "$TMP_PAYLOAD"
+        { [ "$HOST" = "windows" ] && wsl rm -f "$TMP_PAYLOAD" || rm -f "$TMP_PAYLOAD"; } 2>/dev/null || true
         return  # proceed to Step 4c
 
     if state == pending_message:
@@ -452,17 +452,17 @@ while attempt <= MAX_RETRIES:
         elif attempt == 1 and tail != PRE_SEND_TAIL:
             # Pane changed from pre-send — command ran and completed quickly.
             report "✓ Message queued — agent completed the task quickly."
-            rm -f "$TMP_PAYLOAD"
+            { [ "$HOST" = "windows" ] && wsl rm -f "$TMP_PAYLOAD" || rm -f "$TMP_PAYLOAD"; } 2>/dev/null || true
             return
         else:
             # Second idle after retry — give up and report.
             ALERT: "⚠ Message delivery to SESSION failed after $MAX_RETRIES attempts.
                     The agent pane appears unchanged. Last 20 pane lines:"
             show tail
-            rm -f "$TMP_PAYLOAD"
+            { [ "$HOST" = "windows" ] && wsl rm -f "$TMP_PAYLOAD" || rm -f "$TMP_PAYLOAD"; } 2>/dev/null || true
             return  # do NOT proceed to Step 4c
 
-rm -f "$TMP_PAYLOAD"
+{ [ "$HOST" = "windows" ] && wsl rm -f "$TMP_PAYLOAD" || rm -f "$TMP_PAYLOAD"; } 2>/dev/null || true
 ALERT: "⚠ Message delivery to SESSION failed after $MAX_RETRIES attempts.
         The message still appears pending (Enter may not be processing). Last 20 pane lines:"
 show tail
