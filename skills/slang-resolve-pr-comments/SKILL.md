@@ -2,14 +2,7 @@
 name: slang-resolve-pr-comments
 description: Resolve GitHub PR review feedback and CI failures. Use when asked to monitor a PR, handle LLM review threads, notify the user about draft/WIP/DNI review-blocking LLM messages, leave human review threads for human resolution, fix failing checks, rebase merge conflicts, and push updates until the PR is clean.
 argument-hint: "<PR URL or number>"
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - ScheduleWakeup
+allowed-tools: Bash Read Write Edit Grep Glob ScheduleWakeup
 ---
 
 # Resolve GitHub Review Feedback
