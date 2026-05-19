@@ -7,7 +7,40 @@ description: Platform-aware build instructions for the Slang compiler. Only invo
 
 **For**: Building the Slang compiler on any supported platform.
 
-**Usage**: Referenced by other skills. Can also be invoked directly: `/slang-build [debug|release]`
+**Usage**: Referenced by other skills. Can also be invoked directly:
+
+```
+/slang-build [action] [config]
+
+  action  build (default) | rebuild | clean | configure
+  config  debug (default) | release | releasewithdebug
+```
+
+### Parse Arguments
+
+At the start of every invocation, parse the arguments to determine the action and build
+configuration. Both are optional and order-independent.
+
+```bash
+ACTION="build"
+CONFIG="debug"
+
+for ARG in $ARGUMENTS; do
+  case "${ARG,,}" in
+    build|rebuild|clean|configure) ACTION="${ARG,,}" ;;
+    debug|release|releasewithdebug) CONFIG="${ARG,,}" ;;
+  esac
+done
+
+# Map config name to CMake preset and binary path
+case "$CONFIG" in
+  debug)            CMAKE_BUILD_PRESET="debug";                BIN_PATH="build/Debug/bin" ;;
+  release)          CMAKE_BUILD_PRESET="release";              BIN_PATH="build/Release/bin" ;;
+  releasewithdebug) CMAKE_BUILD_PRESET="releaseWithDebugInfo"; BIN_PATH="build/RelWithDebInfo/bin" ;;
+esac
+```
+
+Proceed to Step 1 (platform detection), then jump to the section for `$ACTION`.
 
 ---
 
@@ -91,6 +124,9 @@ $GIT submodule update --init --recursive
 
 ## Step 3: Configure
 
+Run this step for actions `configure`, `build` (first time, no existing `build/`), and `rebuild`
+(after the old `build/` has been renamed away). Skip for `build` when `build/` already exists.
+
 ```bash
 cmake --preset default -DSLANG_EMBED_CORE_MODULE=OFF
 ```
@@ -108,6 +144,8 @@ cmake.exe --preset vs2026-dev -DSLANG_IGNORE_ABORT_MSG=ON -DSLANG_EMBED_CORE_MOD
 - `-DSLANG_IGNORE_ABORT_MSG=ON` suppresses modal abort dialogs during unattended builds.
 - `-DSLANG_EMBED_CORE_MODULE=OFF` skips embedding the core module binary, which gives cleaner stack traces and makes bugs easier to track down.
 
+Stop here if `$ACTION` is `configure`.
+
 ### Optional: sccache
 
 For faster rebuilds, pass `-DSLANG_USE_SCCACHE=ON` at configure time. Requires `sccache` in PATH.
@@ -121,24 +159,31 @@ objects that don't include your changes. If edits seem to have no effect, either
 
 ## Step 4: Build
 
-### Preset Selection
+### Config Reference
 
-| Use Case | Preset | Binary Path | When |
-|----------|--------|-------------|------|
-| **Default** | `debug` | `build/Debug/bin/` | General development — assertions enabled, full debug symbols |
-| Performance testing | `releaseWithDebugInfo` | `build/RelWithDebInfo/bin/` | Faster builds when assertions aren't needed |
-| CI / benchmarking | `release` | `build/Release/bin/` | Benchmarking, CI-like validation |
+| `$CONFIG` | `$CMAKE_BUILD_PRESET` | `$BIN_PATH` | Notes |
+|-----------|-----------------------|-------------|-------|
+| `debug` *(default)* | `debug` | `build/Debug/bin` | Assertions enabled, full debug symbols |
+| `releasewithdebug` | `releaseWithDebugInfo` | `build/RelWithDebInfo/bin` | Faster builds when assertions aren't needed |
+| `release` | `release` | `build/Release/bin` | Benchmarking, CI-like validation |
 
-**Default**: Use `debug` for general development — assertions are enabled and catch invariant
-violations early, which is critical for tracking down bugs.
+### Action: `build` (default)
 
-### Build Commands
+If `build/` does not yet exist, run Step 3 (configure) first, then build:
 
 ```bash
-# Build specific targets (preferred — faster than building everything)
-cmake --build --preset <preset> --target slangc slang-test \
-  >/dev/null 2>&1 || cmake --build --preset <preset> --target slangc slang-test
+cmake --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test \
+  >/dev/null 2>&1 || cmake --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test
 ```
+
+### Action: `rebuild`
+
+Run the **Clean Build** steps (rename `build/`, background delete), then Step 3 (configure),
+then the build command above.
+
+### Action: `clean`
+
+Run the **Clean Build** steps only (rename + background delete). Do not configure or build.
 
 The redirect-and-retry pattern avoids wasting LLM tokens on successful build output.
 On failure, the second invocation shows the actual errors.
@@ -150,22 +195,24 @@ On failure, the second invocation shows the actual errors.
 After building, verify the binaries exist:
 
 ```bash
-# Adjust path based on preset (default: Debug)
-ls build/Debug/bin/slangc
-ls build/Debug/bin/slang-test
+ls $BIN_PATH/slangc
+ls $BIN_PATH/slang-test
 ```
 
 ---
 
 ## Quick Reference
 
+Examples below use the defaults (`build`, `debug`). Substitute `$CMAKE_BUILD_PRESET` with
+`releaseWithDebugInfo` or `release` as needed.
+
 ### One-liner: configure + build (first time, Linux/macOS)
 
 ```bash
 git submodule update --init --recursive && \
 cmake --preset default -DSLANG_EMBED_CORE_MODULE=OFF && \
-cmake --build --preset debug --target slangc slang-test \
-  >/dev/null 2>&1 || cmake --build --preset debug --target slangc slang-test
+cmake --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test \
+  >/dev/null 2>&1 || cmake --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test
 ```
 
 ### One-liner: configure + build (first time, WSL / Git Bash)
@@ -174,8 +221,8 @@ cmake --build --preset debug --target slangc slang-test \
 GIT="${GIT:-git}" && \
 $GIT submodule update --init --recursive && \
 cmake.exe --preset vs2026-dev -DSLANG_IGNORE_ABORT_MSG=ON -DSLANG_EMBED_CORE_MODULE=OFF && \
-cmake.exe --build --preset debug --target slangc slang-test \
-  >/dev/null 2>&1 || cmake.exe --build --preset debug --target slangc slang-test
+cmake.exe --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test \
+  >/dev/null 2>&1 || cmake.exe --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test
 ```
 
 ### Configure + build (first time, Windows PowerShell)
@@ -183,15 +230,15 @@ cmake.exe --build --preset debug --target slangc slang-test \
 ```powershell
 git submodule update --init --recursive
 cmake.exe --preset vs2026-dev -DSLANG_IGNORE_ABORT_MSG=ON -DSLANG_EMBED_CORE_MODULE=OFF
-cmake.exe --build --preset debug --target slangc slang-test *>$null
-if ($LASTEXITCODE -ne 0) { cmake.exe --build --preset debug --target slangc slang-test }
+cmake.exe --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test *>$null
+if ($LASTEXITCODE -ne 0) { cmake.exe --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test }
 ```
 
 ### One-liner: rebuild (already configured)
 
 ```bash
-cmake --build --preset debug --target slangc slang-test \
-  >/dev/null 2>&1 || cmake --build --preset debug --target slangc slang-test
+cmake --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test \
+  >/dev/null 2>&1 || cmake --build --preset $CMAKE_BUILD_PRESET --target slangc slang-test
 ```
 
 ---
