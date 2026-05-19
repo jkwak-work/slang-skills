@@ -262,7 +262,7 @@ To restart with bypass mode: $TMUX_EXEC kill-session -t <name>, then
 /tmux-agent-manager new <issue> (which always passes --dangerously-skip-permissions).
 ```
 
-If all sessions are in YOLO mode, omit the warning block entirely.
+If all sessions are in YOLO mode, omit the warning block entirely — print **nothing** about YOLO mode. Do not add any confirmation like "all sessions are in YOLO mode" or "no approval warnings needed". Silence is the correct output when everything is as expected.
 
 **ETA estimation rules** — read the pane tail to classify the current activity, then apply:
 
