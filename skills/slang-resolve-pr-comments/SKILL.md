@@ -44,7 +44,7 @@ Do not overwrite unrelated local changes. If the worktree is dirty, inspect the 
 
 ## Main Loop
 
-Repeat this workflow periodically until the PR has no unresolved review feedback and all required checks pass. Between iterations, **do not use `sleep`** — instead call `ScheduleWakeup` and the same `/resolve-review-feedbacks <PR>` prompt, then return immediately so the conversation stays responsive.
+Repeat this workflow periodically until the PR has no unresolved review feedback and all required checks pass. Between iterations, **do not use `sleep`** — instead call `ScheduleWakeup` and the same `/slang-resolve-pr-comments <PR>` prompt, then return immediately so the conversation stays responsive.
 
 1. Check out the PR branch:
 
@@ -66,7 +66,7 @@ Stop (do not reschedule) only if blocked by missing credentials, missing push pe
 
 **Scheduling the next iteration** — call `ScheduleWakeup` at the end of every pass where work remains:
 
-```
+```text
 ScheduleWakeup(
   delaySeconds = <interval>,
   prompt       = "/slang-resolve-pr-comments <PR>",
@@ -96,7 +96,7 @@ If an LLM left a review-blocking message:
 2. Do not change the draft state or title unless the user explicitly asks.
 3. Do not treat the message as code feedback, and do not mark the thread resolved on behalf of the user.
 4. Let the user resolve the situation by marking the PR ready for review, changing the title, or otherwise addressing the blocker.
-5. Continue the 30-minute polling loop if the user asked for continuous monitoring.
+5. Continue the cache-TTL-based polling loop (`delaySeconds = cache_ttl_seconds - 60`, default 240 s) if the user asked for continuous monitoring.
 
 ## Commit Policy
 
@@ -117,15 +117,15 @@ Use GitHub GraphQL to list review threads, because `gh pr view` does not expose 
 ```bash
 PR_NUMBER="$(gh pr view "$PR" --json number --jq .number)"
 PR_URL="$(gh pr view "$PR" --json url --jq .url)"
-OWNER_REPO="$(printf '%s\n' "$PR_URL" | sed -E 's#https://github.com/([^/]+/[^/]+)/pull/[0-9]+#\1#')"
+OWNER_REPO="$(printf '%s\n' "$PR_URL" | sed -E 's#https://github.com/([^/]+/[^/]+)/pull/[0-9]+.*#\1#')"
 OWNER="${OWNER_REPO%/*}"
 REPO="${OWNER_REPO#*/}"
 
 gh api graphql -F owner="$OWNER" -F repo="$REPO" -F pr="$PR_NUMBER" -f query='
-query($owner:String!, $repo:String!, $pr:Int!) {
+query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
   repository(owner:$owner, name:$repo) {
     pullRequest(number:$pr) {
-      reviewThreads(first:100) {
+      reviewThreads(first:100, after:$after) {
         pageInfo { hasNextPage endCursor }
         nodes {
           id
