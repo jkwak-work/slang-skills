@@ -171,6 +171,7 @@ cmake --build --preset debug --target slangc slang-test \
 ### One-liner: configure + build (first time, WSL / Git Bash)
 
 ```bash
+GIT="${GIT:-git}" && \
 $GIT submodule update --init --recursive && \
 cmake.exe --preset vs2026-dev -DSLANG_IGNORE_ABORT_MSG=ON -DSLANG_EMBED_CORE_MODULE=OFF && \
 cmake.exe --build --preset debug --target slangc slang-test \
@@ -182,7 +183,7 @@ cmake.exe --build --preset debug --target slangc slang-test \
 ```powershell
 git submodule update --init --recursive
 cmake.exe --preset vs2026-dev -DSLANG_IGNORE_ABORT_MSG=ON -DSLANG_EMBED_CORE_MODULE=OFF
-cmake.exe --build --preset debug --target slangc slang-test 2>$null
+cmake.exe --build --preset debug --target slangc slang-test *>$null
 if ($LASTEXITCODE -ne 0) { cmake.exe --build --preset debug --target slangc slang-test }
 ```
 
