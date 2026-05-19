@@ -150,7 +150,7 @@ query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
 
 Classify threads conservatively:
 
-- **LLM review feedback**: the author is clearly an automated LLM reviewer, such as Copilot, CodeRabbit, Claude, Codex, OpenAI, or another bot whose comment identifies itself as AI review feedback.
+- **LLM review feedback**: the author's `__typename` is `Bot` (from the GraphQL response), or the author is clearly an automated LLM reviewer by login — such as Copilot, CodeRabbit, Claude, Codex, OpenAI, or another bot whose comment identifies itself as AI review feedback.
 - **Human feedback**: the author is a person, or the source is ambiguous.
 - **CI/static-analysis bot output**: handle it as CI feedback unless it is clearly an LLM review thread.
 
@@ -188,7 +188,7 @@ mutation($thread:ID!) {
 For human threads, do not mark them resolved. If you fixed the issue, reply with a concise summary and ask the reviewer to resolve the thread if satisfied.
 
 If `pageInfo.hasNextPage` is true, paginate and inspect every review thread before deciding that the PR has no remaining feedback.
-For pagination, repeat the query with an `$after:String` variable and `reviewThreads(first:100, after:$after)` set to the previous `endCursor`.
+For pagination, repeat the query adding `-F after="$END_CURSOR"` (using the value from `pageInfo.endCursor`) to the `gh api graphql` command, with `reviewThreads(first:100, after:$after)` in the query.
 
 ## CI Failures
 
@@ -209,10 +209,10 @@ For each failure:
 5. Push to the PR branch.
 6. Continue monitoring until the new checks finish.
 
-If checks are still running and there is no review work to do, wait for them:
+If checks are still running and there is no review work to do, do not block — use a non-blocking check and let `ScheduleWakeup` handle the next pass:
 
 ```bash
-gh pr checks "$PR" --watch
+gh pr checks "$PR"
 ```
 
 ## Merge Conflicts And Auto-Rebase Failures
