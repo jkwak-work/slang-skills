@@ -14,7 +14,7 @@ allowed-tools:
 
 # Resolve GitHub Review Feedback
 
-Use this skill to keep a GitHub PR moving until all CI checks pass, LLM review threads have been addressed and resolved by the agent, and human-owned threads have been resolved by their reviewers.
+Use this skill to keep a GitHub PR moving until all CI checks pass and LLM review threads have been addressed and resolved by the agent. Human-owned threads are left unresolved — they are outside the agent's control and must be resolved by the human reviewers themselves.
 
 ## Prerequisites
 
@@ -197,6 +197,7 @@ Inspect checks with:
 ```bash
 gh pr checks "$PR"
 gh run list --branch "$(git branch --show-current)" --limit 10
+RUN_ID="$(gh run list --branch "$(git branch --show-current)" --status failure --limit 1 --json databaseId --jq '.[0].databaseId')"
 gh run view "$RUN_ID" --log-failed
 ```
 
@@ -231,7 +232,8 @@ Resolve by rebasing onto the latest base branch:
 BASE="$(gh pr view "$PR" --json baseRefName --jq .baseRefName)"
 HEAD_BRANCH="$(gh pr view "$PR" --json headRefName --jq .headRefName)"
 BASE_REPO="$(gh pr view "$PR" --json baseRepository --jq .baseRepository.nameWithOwner)"
-BASE_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${BASE_REPO}(\.git)?" | awk '{print $1}')"
+BASE_REPO_ESC="$(printf '%s' "$BASE_REPO" | sed -e 's/[][(){}.^$*+?|\\]/\\&/g')"
+BASE_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${BASE_REPO_ESC}(\.git)?([[:space:]]|$)" | awk '{print $1}')"
 if [ -z "$BASE_REMOTE" ]; then
   BASE_REMOTE="upstream"
   if ! git remote get-url "$BASE_REMOTE" 2>/dev/null; then
@@ -254,10 +256,11 @@ Run relevant validation, then push with a lease:
 
 ```bash
 HEAD_REPO="$(gh pr view "$PR" --json headRepository --jq .headRepository.nameWithOwner)"
-PUSH_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${HEAD_REPO}(\.git)?" | awk '{print $1}')"
+HEAD_REPO_ESC="$(printf '%s' "$HEAD_REPO" | sed -e 's/[][(){}.^$*+?|\\]/\\&/g')"
+PUSH_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${HEAD_REPO_ESC}(\.git)?([[:space:]]|$)" | awk '{print $1}')"
 if [ -z "$PUSH_REMOTE" ]; then
   gh pr checkout "$PR"
-  PUSH_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${HEAD_REPO}(\.git)?" | awk '{print $1}')"
+  PUSH_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${HEAD_REPO_ESC}(\.git)?([[:space:]]|$)" | awk '{print $1}')"
 fi
 if [ -z "$PUSH_REMOTE" ]; then
   echo "Could not determine push remote for $HEAD_REPO"
@@ -274,7 +277,7 @@ After every pass, evaluate whether to stop or reschedule:
 
 - `gh pr checks "$PR"` shows all required checks passing.
 - The PR is not in a draft/WIP/DNI-style state that LLM reviewers reported as blocking review.
-- There are no unresolved LLM review threads.
+- There are no unresolved, non-outdated LLM review threads.
 - `gh pr view "$PR" --json mergeStateStatus` does not report a conflict state.
 - All local commits needed for the fixes have been pushed to the PR branch.
 
