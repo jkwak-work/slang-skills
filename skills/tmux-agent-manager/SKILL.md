@@ -10,8 +10,8 @@ description: >-
   that need input or are stuck. Works on native Linux, macOS, WSL (inside),
   and Windows with WSL (Git Bash or PowerShell host).
 argument-hint: "[status | send [session] <message> | monitor [interval_seconds] | new <issue_number_or_prompt>]"
-allowed-tools:
-  - Bash
+allowed-tools: Bash
+license: Apache-2.0
 ---
 
 # Tmux Agent Manager
