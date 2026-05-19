@@ -96,10 +96,10 @@ Parse `$ARGUMENTS` to determine which command to run. If empty or "status", run 
 ## Step 1 — Enumerate candidate agent panes, then filter to confirmed agents
 
 ```bash
-$TMUX_EXEC list-sessions -F "#{session_name}" | sed 's/$/:0.0/'
+$TMUX_EXEC list-sessions -F "#{session_name}"
 ```
 
-This produces one `SESSION:0.0` candidate per session. After listing, **filter** to
+This produces one `SESSION` name per session. After listing, **filter** to
 only sessions whose pane tail shows Claude/Codex agent markers: a welcome banner,
 a model-info line, or the `›` prompt pattern expected by Step 2. Discard sessions
 that show none of these — they are unrelated tmux sessions and must not be targeted
@@ -110,7 +110,7 @@ Capture 250 lines of scrollback from each candidate and test against the agent-m
 ```bash
 tail_output=$($TMUX_EXEC capture-pane -t "$SESSION:0.0" -p -S -250 | tail -250)
 echo "$tail_output" \
-  | grep -qE "(Claude Code|Codex|Model: claude-|›.*claude-|^›[[:space:]]*$|• (Ran|Read|Writing|Searching))" \
+  | grep -qE "(Claude Code|Codex|Model: claude-|›.*claude-|^›[[:space:]]*$)" \
   && echo "AGENT" || echo "NOT_AGENT"
 ```
 
@@ -145,7 +145,7 @@ done
 For each pane target `SESSION:W.P`, capture 250 lines of scrollback (so the `─ Worked for` separator and other signals aren't lost after verbose output):
 
 ```bash
-$TMUX_EXEC capture-pane -t "SESSION:W.P" -p -S -250 | tail -250
+$TMUX_EXEC capture-pane -t "$SESSION:0.0" -p -S -250 | tail -250
 ```
 
 **State detection rules** (apply to the captured tail):
@@ -156,7 +156,7 @@ $TMUX_EXEC capture-pane -t "SESSION:W.P" -p -S -250 | tail -250
 | `working` | Lines contain `• Ran`, `• Read`, `• Writing`, `• Searching`, spinner chars, or active build/test output |
 | `needs_approval` | Lines near bottom contain "Do you want to", "Allow", "(y/n)", "Yes/No", or "approve" |
 | `pending_message` | `›` prompt followed by user message text (received but not yet processed) |
-| `stuck` | Pane content identical across two consecutive polls AND state is not `idle`; **monitor-loop only** — store previous pane snapshot in `PREV_PANE_DIR/<session>`; compare with current snapshot on each iteration; if unchanged and state ≠ `idle`, classify as `stuck` |
+| `stuck` | Pane content identical across two consecutive polls AND state is neither `idle` nor `needs_approval`; **monitor-loop only** — store previous pane snapshot in `PREV_PANE_DIR/<session>`; compare with current snapshot on each iteration; if unchanged and state is not `idle`/`needs_approval`, classify as `stuck` |
 | `unknown` | None of the above — treat as working |
 
 **Stuck detection — state management** (monitor-loop only):
@@ -286,15 +286,15 @@ else
 MESSAGE
 EOF_TMUX_AGENT
 fi
-PRE_SEND_TAIL=$($TMUX_EXEC capture-pane -t "SESSION:0.0" -p | tail -20)
+PRE_SEND_TAIL=$($TMUX_EXEC capture-pane -t "$SESSION:0.0" -p | tail -20)
 $TMUX_EXEC load-buffer -b "agent_msg_$SESSION" "$TMP_PAYLOAD"
-$TMUX_EXEC paste-buffer -b "agent_msg_$SESSION" -t "SESSION:0.0"
+$TMUX_EXEC paste-buffer -b "agent_msg_$SESSION" -t "$SESSION:0.0"
 $TMUX_EXEC delete-buffer -b "agent_msg_$SESSION"
 # Wait for the paste to land in the terminal before sending Enter.
 # paste-buffer is async — sending Enter immediately risks the keystroke
 # arriving before the pasted text and being swallowed.
 sleep 1
-$TMUX_EXEC send-keys -t "SESSION:0.0" Enter
+$TMUX_EXEC send-keys -t "$SESSION:0.0" Enter
 # Do NOT rm TMP_PAYLOAD here — Step 4b may need it for a retry.
 ```
 
@@ -331,7 +331,7 @@ Capture the session name and last 10 lines of pane 0.0 for each session.
 **Case B — Implicit-target form** (`send <message>` with no session token):
 
 1. If there is exactly one active **agent** session → treat it as the target; skip to 4a-iii.
-2. If there are multiple active sessions → **ask the user**:
+2. If there are multiple active **agent** sessions → **ask the user**:
 
    > "There are N active agent sessions: [list names with one-line summaries].
    > Which session should receive this message?"
@@ -414,7 +414,7 @@ while attempt <= MAX_RETRIES:
     if state == pending_message:
         # Text is visible after › but Enter was not processed.
         # This is the "waiting for ENTER" failure mode.
-        $TMUX_EXEC send-keys -t "SESSION:0.0" Enter
+        $TMUX_EXEC send-keys -t "$SESSION:0.0" Enter
         attempt += 1
         continue
 
@@ -423,10 +423,10 @@ while attempt <= MAX_RETRIES:
             # Pane matches pre-send snapshot — paste failed silently.
             # Retry the full send sequence before giving up.
             $TMUX_EXEC load-buffer -b "agent_msg_$SESSION" "$TMP_PAYLOAD"
-            $TMUX_EXEC paste-buffer -b "agent_msg_$SESSION" -t "SESSION:0.0"
+            $TMUX_EXEC paste-buffer -b "agent_msg_$SESSION" -t "$SESSION:0.0"
             $TMUX_EXEC delete-buffer -b "agent_msg_$SESSION"
             sleep 1
-            $TMUX_EXEC send-keys -t "SESSION:0.0" Enter
+            $TMUX_EXEC send-keys -t "$SESSION:0.0" Enter
             attempt += 1
             continue
         elif attempt == 1 and tail != PRE_SEND_TAIL:
@@ -557,10 +557,10 @@ user.
 2. Mark every `needs_approval` or `stuck` session with `⚠ NEEDS ATTENTION` in the status table (notifications are not yet implemented — see Step 5).
 3. Report status table to user.
 4. Schedule next wakeup via ScheduleWakeup:
-   - `delaySeconds`: interval from `$ARGUMENTS`; if not provided, pick `cache_ttl_seconds - 60`
-     (default **240 s** at the current 5-minute cache TTL, giving a 60 s safety margin).
-     Never use a value at or above the cache TTL — doing so forces a cold context re-read on
-     every wakeup. If you know the cache TTL has changed, recalculate accordingly.
+   - `delaySeconds`: interval from `$ARGUMENTS`; if not provided, use **240** (the cache TTL
+     of 300 s minus a 60 s safety margin). Never use a value at or above 300 — doing so
+     forces a cold context re-read on every wakeup. If the cache TTL changes, recalculate
+     as `<new_ttl_seconds> - 60`.
    - `prompt`: `/tmux-agent-manager monitor <interval>`
    - `reason`: "periodic tmux agent health check"
 
