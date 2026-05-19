@@ -9,7 +9,7 @@ description: Platform-aware build instructions for the Slang compiler. Only invo
 
 **Usage**: Referenced by other skills. Can also be invoked directly:
 
-```
+```text
 /slang-build [action] [config]
 
   action  build (default) | rebuild | clean | configure
@@ -195,8 +195,8 @@ On failure, the second invocation shows the actual errors.
 After building, verify the binaries exist:
 
 ```bash
-ls $BIN_PATH/slangc
-ls $BIN_PATH/slang-test
+ls "$BIN_PATH"/slangc*
+ls "$BIN_PATH"/slang-test*
 ```
 
 ---
