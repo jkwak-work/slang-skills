@@ -193,3 +193,50 @@ if ($LASTEXITCODE -ne 0) { cmake.exe --build --preset debug --target slangc slan
 cmake --build --preset debug --target slangc slang-test \
   >/dev/null 2>&1 || cmake --build --preset debug --target slangc slang-test
 ```
+
+---
+
+## Clean Build
+
+A clean build discards all cached objects and forces a full recompilation. The preferred approach
+is to **rename** the `build/` directory rather than delete it in place, for two reasons:
+
+1. On Windows, open file handles inside `build/` will cause an in-place `rm -rf` to fail
+   partway through, leaving a partially-deleted tree. A rename either succeeds atomically or
+   fails immediately — there is no partial state.
+2. The renamed directory can be deleted in the background, so the new configure+build starts
+   without waiting for the slow recursive delete to finish.
+
+### Step A: Rename (bash / WSL / Git Bash)
+
+```bash
+BUILD_TRASH="build_$$"
+if mv build "$BUILD_TRASH" 2>/dev/null; then
+  echo "Renamed build/ to $BUILD_TRASH"
+  rm -rf "$BUILD_TRASH" &
+  echo "Background delete started (PID $!)"
+else
+  echo "ERROR: build/ could not be renamed — it is likely in use. Close any processes" \
+       "(debuggers, IDE, running binaries) that have files open inside build/ and retry."
+  exit 1
+fi
+```
+
+### Step A: Rename (Windows PowerShell)
+
+```powershell
+$BuildTrash = "build_$PID"
+if (Rename-Item -Path build -NewName $BuildTrash -ErrorAction SilentlyContinue) {
+    Write-Host "Renamed build/ to $BuildTrash"
+    Start-Job { Remove-Item -Recurse -Force $using:BuildTrash } | Out-Null
+    Write-Host "Background delete started"
+} else {
+    Write-Error "ERROR: build\ could not be renamed — it is likely in use. Close any processes (debuggers, IDE, running binaries) that have files open inside build\ and retry."
+    exit 1
+}
+```
+
+### Step B: Reconfigure and rebuild
+
+After the rename succeeds, run the full configure+build sequence from Step 3 and Step 4 as if
+building for the first time. Do not skip the configure step — the old `CMakeCache.txt` is gone.
