@@ -256,6 +256,10 @@ Run relevant validation, then push with a lease:
 HEAD_REPO="$(gh pr view "$PR" --json headRepository --jq .headRepository.nameWithOwner)"
 PUSH_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${HEAD_REPO}(\.git)?" | awk '{print $1}')"
 if [ -z "$PUSH_REMOTE" ]; then
+  gh pr checkout "$PR"
+  PUSH_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${HEAD_REPO}(\.git)?" | awk '{print $1}')"
+fi
+if [ -z "$PUSH_REMOTE" ]; then
   echo "Could not determine push remote for $HEAD_REPO"
   exit 1
 fi
