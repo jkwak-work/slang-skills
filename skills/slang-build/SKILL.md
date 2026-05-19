@@ -16,7 +16,7 @@ description: Platform-aware build instructions for the Slang compiler. Only invo
   config  debug (default) | release | releasewithdebug
 ```
 
-### Parse Arguments
+## Parse Arguments
 
 At the start of every invocation, parse the arguments to determine the action and build
 configuration. Both are optional and order-independent.
@@ -26,9 +26,10 @@ ACTION="build"
 CONFIG="debug"
 
 for ARG in $ARGUMENTS; do
-  case "${ARG,,}" in
-    build|rebuild|clean|configure) ACTION="${ARG,,}" ;;
-    debug|release|releasewithdebug) CONFIG="${ARG,,}" ;;
+  ARG_LOWER=$(echo "$ARG" | tr '[:upper:]' '[:lower:]')
+  case "$ARG_LOWER" in
+    build|rebuild|clean|configure) ACTION="$ARG_LOWER" ;;
+    debug|release|releasewithdebug) CONFIG="$ARG_LOWER" ;;
   esac
 done
 
@@ -257,6 +258,10 @@ is to **rename** the `build/` directory rather than delete it in place, for two 
 ### Step A: Rename (bash / WSL / Git Bash)
 
 ```bash
+if [ ! -d "build" ]; then
+  echo "build/ directory does not exist. Nothing to clean."
+  exit 0
+fi
 BUILD_TRASH="build_$$"
 if mv build "$BUILD_TRASH" 2>/dev/null; then
   echo "Renamed build/ to $BUILD_TRASH"
@@ -272,6 +277,10 @@ fi
 ### Step A: Rename (Windows PowerShell)
 
 ```powershell
+if (-not (Test-Path -Path build -PathType Container)) {
+    Write-Host "build/ directory does not exist. Nothing to clean."
+    exit 0
+}
 $BuildTrash = "build_$PID"
 if (Rename-Item -Path build -NewName $BuildTrash -ErrorAction SilentlyContinue) {
     Write-Host "Renamed build/ to $BuildTrash"
