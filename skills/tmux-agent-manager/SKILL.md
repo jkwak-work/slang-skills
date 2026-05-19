@@ -53,11 +53,15 @@ else
     GIT="git"
 fi
 
+PREV_PANE_DIR="${HOME}/.cache/tmux-agent-manager/prev_pane"
+YOLO_MODE_DIR="${HOME}/.cache/tmux-agent-manager/yolo_mode"
+mkdir -p "$PREV_PANE_DIR" "$YOLO_MODE_DIR"
+
 echo "TMUX_EXEC=$TMUX_EXEC SH=$SH HOST=$HOST GIT=$GIT"
 ```
 
-Re-declare `TMUX_EXEC`, `SH`, `HOST`, `GIT`, and `PREV_PANE_DIR` at the top of every subsequent
-bash block that needs them, using the values printed above.
+Re-declare `TMUX_EXEC`, `SH`, `HOST`, `GIT`, `PREV_PANE_DIR`, and `YOLO_MODE_DIR` at the top of every subsequent
+bash block that needs them, using the values set above.
 
 **Variable reference used in all steps below:**
 
@@ -105,10 +109,13 @@ a model-info line, or the `›` prompt pattern expected by Step 2. Discard sessi
 that show none of these — they are unrelated tmux sessions and must not be targeted
 for status classification, sends, or implicit target resolution.
 
-Capture the full pane scrollback from each candidate and test against identity-marker regex. Using full scrollback (`-S -`) ensures startup markers are found even in sessions that have been running for a long time with heavy output — no working-state markers are needed:
+Use a two-pass capture: first 500 lines of scrollback (welcome banner) plus last 250 lines (current prompt). This avoids loading unbounded scrollback from long-running sessions:
 
 ```bash
-tail_output=$($TMUX_EXEC capture-pane -t "$SESSION:0.0" -p -S -)
+tail_output=$(
+  { $TMUX_EXEC capture-pane -t "$SESSION:0.0" -p -S 0 -E 500 2>/dev/null
+    $TMUX_EXEC capture-pane -t "$SESSION:0.0" -p -S -250 2>/dev/null; }
+)
 echo "$tail_output" \
   | grep -qE "(Claude Code|Codex|Model: claude-|›.*claude-|^›[[:space:]]*$)" \
   && echo "AGENT" || echo "NOT_AGENT"
@@ -136,7 +143,18 @@ for state_dir in \
 done
 ```
 
-`ACTIVE_AGENT_SESSIONS` is the newline-separated list of confirmed AGENT session names produced by the filter above.
+`ACTIVE_AGENT_SESSIONS` is the newline-separated list of confirmed AGENT session names. Build it during the filter loop:
+
+```bash
+ACTIVE_AGENT_SESSIONS=""
+while IFS= read -r SESSION; do
+  # ... run the two-pass capture and grep ...
+  if [ "$(echo "$tail_output" | grep -qE "..." && echo AGENT || echo NOT_AGENT)" = "AGENT" ]; then
+    ACTIVE_AGENT_SESSIONS="${ACTIVE_AGENT_SESSIONS}${SESSION}
+"
+  fi
+done < <($TMUX_EXEC list-sessions -F "#{session_name}" 2>/dev/null)
+```
 
 ---
 
@@ -201,7 +219,7 @@ as `normal` (not in bypass mode).
 Store the result per session using the same file-based pattern as `PREV_PANE_DIR` (portable; avoids associative arrays which require Bash 4.0+):
 
 ```bash
-YOLO_STATUS=$($TMUX_EXEC capture-pane -t "$SESSION:0.0" -p -S - \
+YOLO_STATUS=$($TMUX_EXEC capture-pane -t "$SESSION:0.0" -p -S 0 -E 500 2>/dev/null \
   | grep -qE "dangerously-skip-permissions|Bypassing permission" \
   && echo "yolo" || echo "normal")
 YOLO_MODE_DIR="${HOME}/.cache/tmux-agent-manager/yolo_mode"
@@ -573,34 +591,7 @@ When command is `new <args>`:
 - If `<args>` is a bare integer → GitHub issue number
 - Otherwise → free-form task prompt
 
-### 7a — Determine slug and task prompt
-
-> **Note:** When handling an issue number, run **Step 7b** (path discovery) first to populate `$REPO` before executing the `gh issue view` command below.
-
-**Issue number path:**
-```bash
-gh issue view <number> --repo "$REPO" --json number,title,body,labels
-```
-- `slug` ← from `title`
-- `branch prefix` ← labels: "bug"/"crash" → `fix/`; "feature"/"enhancement" → `feature/`; else `fix/`
-- Claude prompt: issue title + body (truncated to 3000 chars) + instruction to fix, test, commit
-
-**Free-form path:**
-- `slug` ← from the prompt text
-- `branch prefix` ← prompt contains "feature"/"add" → `feature/`; else `fix/`
-- Claude prompt: the user's prompt verbatim + instruction to test and commit
-
-**Slug rule:** lowercase → replace runs of non-alphanumeric chars with `-` → collapse
-consecutive `-` → strip leading/trailing `-` → truncate to 40 chars → strip any
-trailing `-` left by the truncation.
-
-Keep the most meaningful words (usually the first few): a 40-char slug must still be
-recognisable at a glance without needing further truncation in the status table.
-
-Full branch: `<prefix><slug>` (e.g. `fix/getTypeNameHint-cr`)
-Session/worktree name: `<slug>` (no prefix)
-
-### 7b — Discover paths dynamically
+### 7a — Discover paths dynamically
 
 Run this inside a single shell call (adapt prefix for HOST):
 
@@ -636,6 +627,31 @@ New worktree paths:
 - Shell path (for tmux `-c` and cd): `$PARENT_SHELL/<slug>`
 - Native path (for `git worktree add`): `$PARENT_NATIVE/<slug>`
 
+### 7b — Determine slug and task prompt
+
+**Issue number path** (`$REPO` is now set from Step 7a):
+```bash
+gh issue view <number> --repo "$REPO" --json number,title,body,labels
+```
+- `slug` ← from `title`
+- `branch prefix` ← labels: "bug"/"crash" → `fix/`; "feature"/"enhancement" → `feature/`; else `fix/`
+- Claude prompt: issue title + body (truncated to 3000 chars) + instruction to fix, test, commit
+
+**Free-form path:**
+- `slug` ← from the prompt text
+- `branch prefix` ← prompt contains "feature"/"add" → `feature/`; else `fix/`
+- Claude prompt: the user's prompt verbatim + instruction to test and commit
+
+**Slug rule:** lowercase → replace runs of non-alphanumeric chars with `-` → collapse
+consecutive `-` → strip leading/trailing `-` → truncate to 40 chars → strip any
+trailing `-` left by the truncation.
+
+Keep the most meaningful words (usually the first few): a 40-char slug must still be
+recognisable at a glance without needing further truncation in the status table.
+
+Full branch: `<prefix><slug>` (e.g. `fix/getTypeNameHint-cr`)
+Session/worktree name: `<slug>` (no prefix)
+
 ### 7c — Collision check
 
 ```bash
@@ -648,7 +664,12 @@ Stop and tell the user if either returns `EXISTS`.
 ### 7d — Create the worktree
 
 ```bash
-$GIT -C "$MAIN_NATIVE" worktree add "$PARENT_NATIVE/<slug>" -b "<branch>"
+if $GIT -C "$MAIN_NATIVE" rev-parse --verify "<branch>" >/dev/null 2>&1; then
+    # Branch already exists — attach to it
+    $GIT -C "$MAIN_NATIVE" worktree add "$PARENT_NATIVE/<slug>" "<branch>"
+else
+    $GIT -C "$MAIN_NATIVE" worktree add "$PARENT_NATIVE/<slug>" -b "<branch>"
+fi
 ```
 
 ### 7e — Initialize submodules with local reference
