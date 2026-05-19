@@ -116,10 +116,8 @@ Use GitHub GraphQL to list review threads, because `gh pr view` does not expose 
 
 ```bash
 PR_NUMBER="$(gh pr view "$PR" --json number --jq .number)"
-PR_URL="$(gh pr view "$PR" --json url --jq .url)"
-OWNER_REPO="$(printf '%s\n' "$PR_URL" | sed -E 's#https://github.com/([^/]+/[^/]+)/pull/[0-9]+.*#\1#')"
-OWNER="${OWNER_REPO%/*}"
-REPO="${OWNER_REPO#*/}"
+OWNER="$(gh pr view "$PR" --json baseRepository --jq .baseRepository.owner.login)"
+REPO="$(gh pr view "$PR" --json baseRepository --jq .baseRepository.name)"
 
 gh api graphql -F owner="$OWNER" -F repo="$REPO" -F pr="$PR_NUMBER" -f query='
 query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
@@ -156,7 +154,7 @@ Classify threads conservatively:
 - **Human feedback**: the author is a person, or the source is ambiguous.
 - **CI/static-analysis bot output**: handle it as CI feedback unless it is clearly an LLM review thread.
 
-For each unresolved LLM thread:
+For each unresolved, non-outdated (`isResolved = false` and `isOutdated = false`) LLM thread:
 
 1. Read the full thread and relevant code.
 2. Apply the fix, or determine that the suggestion is invalid with evidence.
@@ -233,8 +231,14 @@ Resolve by rebasing onto the latest base branch:
 BASE="$(gh pr view "$PR" --json baseRefName --jq .baseRefName)"
 HEAD_BRANCH="$(gh pr view "$PR" --json headRefName --jq .headRefName)"
 BASE_REPO="$(gh pr view "$PR" --json baseRepository --jq .baseRepository.nameWithOwner)"
-BASE_REMOTE="$(git remote -v | grep -m1 "$BASE_REPO" | awk '{print $1}')"
-BASE_REMOTE="${BASE_REMOTE:-upstream}"
+BASE_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${BASE_REPO}(\.git)?" | awk '{print $1}')"
+if [ -z "$BASE_REMOTE" ]; then
+  BASE_REMOTE="upstream"
+  if ! git remote get-url "$BASE_REMOTE" 2>/dev/null; then
+    echo "Could not determine base remote for $BASE_REPO and 'upstream' does not exist"
+    exit 1
+  fi
+fi
 git fetch "$BASE_REMOTE" "$BASE"
 git rebase "$BASE_REMOTE/$BASE"
 ```
@@ -250,7 +254,7 @@ Run relevant validation, then push with a lease:
 
 ```bash
 HEAD_REPO="$(gh pr view "$PR" --json headRepository --jq .headRepository.nameWithOwner)"
-PUSH_REMOTE="$(git remote -v | grep -m1 "$HEAD_REPO" | awk '{print $1}')"
+PUSH_REMOTE="$(git remote -v | grep -Em1 "github\.com[:/]${HEAD_REPO}(\.git)?" | awk '{print $1}')"
 if [ -z "$PUSH_REMOTE" ]; then
   echo "Could not determine push remote for $HEAD_REPO"
   exit 1
