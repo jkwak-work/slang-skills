@@ -132,7 +132,7 @@ query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
           path
           line
           startLine
-          comments(first:100) {
+          comments(last:100) {
             nodes {
               id
               url
@@ -151,7 +151,7 @@ query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
 Classify threads conservatively:
 
 - **LLM review feedback**: the author's `__typename` is `Bot` (from the GraphQL response), or the author is clearly an automated LLM reviewer by login — such as Copilot, CodeRabbit, Claude, Codex, OpenAI, or another bot whose comment identifies itself as AI review feedback.
-- **Human feedback**: the author is a person, or the source is ambiguous.
+- **Human feedback**: the author is a person, the `author` field is `null` (deleted account — treat as human to be safe), or the source is ambiguous.
 - **CI/static-analysis bot output**: handle it as CI feedback unless it is clearly an LLM review thread.
 
 For each unresolved, non-outdated (`isResolved = false` and `isOutdated = false`) LLM thread:
