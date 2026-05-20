@@ -156,13 +156,13 @@ the release tag for the current commit and passing an explicit binary URL.
 First, ensure the release tags are fetched locally:
 
 ```bash
-git fetch --tags
+$GIT fetch --tags
 ```
 
 Then compute the tag:
 
 ```bash
-tagFullVersion="$(git describe --tags --match 'v20[2-9][0-9].[0-9]*')"
+tagFullVersion="$($GIT describe --tags --match 'v20[2-9][0-9].[0-9]*')"
 tagVersion="${tagFullVersion%%-*}"
 tag="${tagVersion#v}"
 ```
