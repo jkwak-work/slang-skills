@@ -3,7 +3,7 @@ name: slang-resolve-pr-comments
 description: Resolve GitHub PR review feedback and CI failures. Use when asked to monitor a PR, handle LLM review threads, notify the user about draft/WIP/DNI review-blocking LLM messages, leave human review threads for human resolution, fix failing checks, rebase merge conflicts, and push updates until the PR is clean.
 argument-hint: "<PR URL or number>"
 allowed-tools: Bash Read Write Edit Grep Glob ScheduleWakeup
-required-capabilities: shell git github-cli file-read file-edit search optional-nonblocking-scheduler
+required-capabilities: shell git github-cli file-read file-edit search
 ---
 
 # Resolve GitHub Review Feedback
@@ -58,7 +58,7 @@ Wait for the user's choice before continuing.
 
 ## Main Loop
 
-Repeat this workflow periodically until the PR has no unresolved, non-outdated LLM-owned review feedback and all required checks pass. Between iterations, **do not use `sleep`** or block the live session. Use the current agent host's non-blocking follow-up facility when one exists; otherwise report the pending state and the exact prompt/command the user or orchestrator should rerun later.
+Repeat this workflow periodically until the PR has no unresolved, non-outdated LLM-owned review feedback and all required checks pass. Between iterations, **do not use `sleep`** or block the live session. Use the current agent host's non-blocking follow-up facility when one exists; otherwise report the pending state and the exact prompt/command the user or orchestrator should rerun later, then return.
 
 1. Check out the PR branch:
 
@@ -116,7 +116,7 @@ If an LLM left a review-blocking message:
 2. Do not change the draft state or title unless the user explicitly asks.
 3. Do not treat the message as code feedback, and do not mark the thread resolved on behalf of the user.
 4. Let the user resolve the situation by marking the PR ready for review, changing the title, or otherwise addressing the blocker.
-5. Continue the cache-TTL-based polling loop (`delaySeconds = cache_ttl_seconds - 60`, default 240 s) if the user asked for continuous monitoring and the current agent host supports non-blocking follow-up scheduling. Otherwise, report the blocker and the rerun timing.
+5. Unless the user explicitly requested a single-pass run, invoking this skill implies continuous monitoring. If the current agent host supports non-blocking follow-up scheduling, schedule the next pass with `delaySeconds = cache_ttl_seconds - 60` (default 240 s), then return. Otherwise, report the blocker and the rerun timing, then return.
 
 ## Commit Policy
 
@@ -267,7 +267,7 @@ fi
 
 After issuing a rerun, schedule the next wakeup as normal and verify in the following pass whether the retried run passed. If the same job fails again with the same infra-looking error, retry once more (up to **3 total attempts** for the same run). After 3 consecutive infra-looking failures, stop retrying and report the pattern to the user — the infra issue may be persistent and require human intervention.
 
-If checks are still running and there is no review work to do, do not block — use a non-blocking check and then schedule or request the next pass:
+If checks are still running and there is no review work to do, do not block — use a non-blocking check, then schedule or request the next pass and return:
 
 ```bash
 gh pr checks "$PR"
