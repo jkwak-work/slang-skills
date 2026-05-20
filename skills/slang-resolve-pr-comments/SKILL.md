@@ -116,7 +116,7 @@ If an LLM left a review-blocking message:
 2. Do not change the draft state or title unless the user explicitly asks.
 3. Do not treat the message as code feedback, and do not mark the thread resolved on behalf of the user.
 4. Let the user resolve the situation by marking the PR ready for review, changing the title, or otherwise addressing the blocker.
-5. Unless the user explicitly requested a single-pass run, invoking this skill implies continuous monitoring. If the current agent host supports non-blocking follow-up scheduling, schedule the next pass with `delaySeconds = cache_ttl_seconds - 60` (default 240 s), then return. Otherwise, report the blocker and the rerun timing, then return.
+5. Unless the user explicitly requested a single-pass run, invoking this skill implies continuous monitoring. If the current agent host supports non-blocking follow-up scheduling, schedule the next pass with `delaySeconds = cache_ttl_seconds - 60` (default 240 s), then return. Otherwise, report the blocker, the rerun timing, and the exact rerun prompt/command, then return.
 
 ## Commit Policy
 
