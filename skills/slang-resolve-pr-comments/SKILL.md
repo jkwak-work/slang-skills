@@ -1,7 +1,7 @@
 ---
 name: slang-resolve-pr-comments
 description: Resolve GitHub PR review feedback and CI failures. Use when asked to monitor a PR, handle LLM review threads, notify the user about draft/WIP/DNI review-blocking LLM messages, leave human review threads for human resolution, fix failing checks, rebase merge conflicts, and push updates until the PR is clean.
-argument-hint: "<PR URL or number>"
+argument-hint: "<PR URL or number> [--single-pass]"
 allowed-tools: Bash Read Write Edit Grep Glob ScheduleWakeup
 required-capabilities: shell git github-cli file-read file-edit search
 ---
@@ -26,13 +26,20 @@ The `argument-hint`, `allowed-tools`, and `required-capabilities` metadata are C
 - GitHub CLI (`gh`) is installed and authenticated for the PR repository.
 - The `gh` token can read PR reviews/checks and push to the PR branch.
 - A PR URL or PR number is provided by the user or agent invocation. In Claude Code slash commands, this arrives in `$ARGUMENTS`. If it is missing, ask the user for the PR.
+- Optional: `--single-pass` disables automatic follow-up scheduling. In single-pass mode, report what remains pending, when to check again, and the exact rerun prompt/command instead of scheduling the next pass.
 
 Initialize the PR selector once before any use, adapting the input variable to the current agent host:
 
 ```bash
 # For Claude Code slash commands, ARGUMENTS contains the prompt argument.
 # For other agents, replace ARGUMENTS with the host's invocation variable or set PR directly.
-PR="${ARGUMENTS:-}"
+ARGS="${ARGUMENTS:-}"
+SINGLE_PASS=false
+if printf '%s\n' "$ARGS" | grep -Eq '(^|[[:space:]])--single-pass([[:space:]]|$)'; then
+  SINGLE_PASS=true
+  ARGS="$(printf '%s\n' "$ARGS" | sed -E 's/(^|[[:space:]])--single-pass([[:space:]]|$)/ /; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+fi
+PR="$ARGS"
 if [ -z "$PR" ]; then
   echo "Missing PR argument (URL or number)."
   exit 1
@@ -78,7 +85,15 @@ Repeat this workflow periodically until the PR has no unresolved, non-outdated L
 
 Stop (do not reschedule) only if blocked by missing credentials, missing push permission, an ambiguous human decision, or local changes that cannot be safely preserved.
 
-**Continuing the next iteration** — at the end of every pass where work remains, prefer a non-blocking follow-up. In Claude Code, call `ScheduleWakeup`:
+**Continuing the next iteration** — at the end of every pass where work remains, prefer a non-blocking follow-up.
+
+**Choosing `<interval>`:** Pick a value that keeps the conversation context cache warm —
+staying under the cache TTL avoids paying a full cold re-read on every wakeup. Use
+`cache_ttl_seconds - 60` as the interval, giving a 60 s safety margin. At the current
+5-minute (300 s) TTL the default is **240 s**. If you know the cache TTL has changed,
+recalculate accordingly. Never use a value at or above the TTL itself.
+
+In Claude Code, call `ScheduleWakeup`:
 
 ```text
 ScheduleWakeup(
@@ -91,14 +106,8 @@ ScheduleWakeup(
 For other agents, use the host's native equivalent if available. If no scheduling/resume tool exists, stop after reporting:
 
 - What is still pending.
-- When to check again, using the interval below.
-- The exact rerun prompt, for example `/slang-resolve-pr-comments <PR>` (substituting `<PR>` with the actual PR URL or number) or the equivalent invocation in the current agent.
-
-**Choosing `<interval>`:** Pick a value that keeps the conversation context cache warm —
-staying under the cache TTL avoids paying a full cold re-read on every wakeup. Use
-`cache_ttl_seconds - 60` as the interval, giving a 60 s safety margin. At the current
-5-minute (300 s) TTL the default is **240 s**. If you know the cache TTL has changed,
-recalculate accordingly. Never use a value at or above the TTL itself.
+- When to check again — use 240 s by default (see **Choosing `<interval>`** above if the cache TTL differs).
+- The exact rerun prompt, for example `/slang-resolve-pr-comments <PR>` (substituting `<PR>` with the actual PR URL or number) or the equivalent invocation in the current agent. If the original run used `--single-pass`, include `--single-pass` in the rerun prompt.
 
 ## Review-Blocking PR State
 
@@ -116,7 +125,7 @@ If an LLM left a review-blocking message:
 2. Do not change the draft state or title unless the user explicitly asks.
 3. Do not treat the message as code feedback, and do not mark the thread resolved on behalf of the user.
 4. Let the user resolve the situation by marking the PR ready for review, changing the title, or otherwise addressing the blocker.
-5. If the PR is review-blocked, report the blocker and proceed to the **Completion Criteria** section to schedule or request the next pass and return.
+5. If the PR is review-blocked, report the blocker and proceed to the **Completion Criteria** section (which handles single-pass vs. continuous monitoring) to schedule or request the next pass and return.
 
 ## Commit Policy
 
@@ -265,7 +274,7 @@ else
 fi
 ```
 
-After issuing a rerun, schedule the next wakeup as normal and verify in the following pass whether the retried run passed. If the same job fails again with the same infra-looking error, retry once more (up to **3 total attempts** for the same run). After 3 consecutive infra-looking failures, stop retrying and report the pattern to the user — the infra issue may be persistent and require human intervention.
+After issuing a rerun, proceed to the **Completion Criteria** section to schedule or request the next pass, then verify in the following pass whether the retried run passed. If the same job fails again with the same infra-looking error, retry once more (up to **3 total attempts** for the same run). After 3 consecutive infra-looking failures, stop retrying and report the pattern to the user — the infra issue may be persistent and require human intervention.
 
 If checks are still running and there is no review work to do, do not block — use a non-blocking check, then proceed to the **Completion Criteria** section to schedule or request the next pass and return:
 
@@ -338,7 +347,7 @@ After every pass, evaluate whether to stop or reschedule:
 - `gh pr view "$PR" --json mergeStateStatus` does not report a conflict state.
 - All local commits needed for the fixes have been pushed to the PR branch.
 
-**Continue later** when any of the above is not yet true. If a single-pass run was requested or scheduling is unavailable, report what is still pending, when to check again, and the exact rerun prompt/command, then return. Otherwise, schedule a non-blocking follow-up when the current agent host supports one, using `delaySeconds = <interval>` (see **Choosing `<interval>`** above), then return.
+**Continue later** when any of the above is not yet true. If a single-pass run was requested (`--single-pass` or `SINGLE_PASS=true`) or scheduling is unavailable, report what is still pending, when to check again, and the exact rerun prompt/command, then return. Otherwise, schedule a non-blocking follow-up when the current agent host supports one, using `delaySeconds = <interval>` (see **Choosing `<interval>`** above), then return.
 
 **The following conditions are not grounds for rescheduling:**
 
