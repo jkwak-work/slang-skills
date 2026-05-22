@@ -235,6 +235,22 @@ Run the **Clean Build** steps only (rename + background delete). Do not configur
 The redirect-and-retry pattern avoids wasting LLM tokens on successful build output.
 On failure, the second invocation shows the actual errors.
 
+### Build Monitoring and Token Use
+
+A fresh build after `configure`, and any `rebuild`, is a full compile. On typical hardware
+(8-core CPU), expect 10-20 minutes; significantly less when sccache is enabled and warm.
+
+The intent is to stay token-efficient while still detecting failures or true hangs. The
+guidance below applies when the build is launched in the background; a synchronous
+invocation simply blocks until completion and needs no polling.
+
+- After launching a fresh build or rebuild, do not request status/output again for 10-15
+  minutes unless the process exits first.
+- If the build is still running after that, check at coarse intervals, typically every 2-5
+  minutes. Do not poll every few seconds just to confirm activity.
+- Prefer the quiet redirect-and-retry command above. Avoid extra `tail`, `ps`, or verbose
+  build monitoring unless diagnosing a likely hang after a long interval.
+
 ---
 
 ## Step 5: Verify
