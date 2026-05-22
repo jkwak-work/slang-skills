@@ -77,9 +77,10 @@ Repeat this workflow periodically until the PR has no unresolved, non-outdated L
 2. Inspect PR state, checks, mergeability, review-blocking notices, and review threads.
 3. Fix actionable review feedback and CI failures.
 4. Commit PR modifications as new commits and push them to the PR branch.
-5. Reply to LLM review feedback and resolve only the LLM-owned threads that have been addressed.
-6. Leave human-owned threads unresolved for the human reviewer to resolve manually.
-7. At the end of each pass, check the Completion Criteria below:
+5. After pushing new commits, update the PR description if the new commits made it stale or inaccurate (see **PR Description Updates** below).
+6. Reply to LLM review feedback and resolve only the LLM-owned threads that have been addressed.
+7. Leave human-owned threads unresolved for the human reviewer to resolve manually.
+8. At the end of each pass, check the Completion Criteria below:
    - If **all criteria are met**: report the PR is clean and **do not reschedule** — the loop is done.
    - Otherwise: schedule or request the next pass as described below, then return. The next pass should re-enter this skill with the same PR argument.
 
@@ -138,6 +139,27 @@ git add <changed-files>
 git commit -m "Address review feedback"
 git push
 ```
+
+## PR Description Updates
+
+After pushing any new commit to the PR branch, check whether the PR description still accurately reflects what the PR does. Update it when the new commits change the scope, behavior, or rationale in a way that makes the existing description stale, misleading, or incomplete. Examples of changes that warrant a description update:
+
+- A review fix changes user-visible behavior, the public API, or configuration that the description documents.
+- New commits add, remove, or rename functionality beyond what the description mentions.
+- The description references a test plan, follow-up TODOs, or known limitations that are no longer accurate after the new commits.
+- Conflict resolution or rebase work materially changes what is included in the PR.
+
+Skip the update when the new commits are purely cosmetic (formatting, typo fixes, comment tweaks) or when they only address narrow review feedback that does not change the summary-level meaning of the PR.
+
+Fetch the current description, edit it, and push the update with `gh`:
+
+```bash
+gh pr view "$PR" --json body --jq .body > /tmp/pr-body.md
+# Edit /tmp/pr-body.md to reflect the current state of the PR.
+gh pr edit "$PR" --body-file /tmp/pr-body.md
+```
+
+Preserve any existing sections (summary, test plan, generated-by footers, issue links) unless they are now inaccurate. Do not rewrite the description from scratch when a targeted edit will do.
 
 ## Review Threads
 
