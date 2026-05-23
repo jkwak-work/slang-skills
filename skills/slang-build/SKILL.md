@@ -1,10 +1,6 @@
 ---
 description: Provides platform-aware build instructions for the Slang compiler. Use for configuring, building, rebuilding, or cleaning compiler build outputs during validation, regression checks, or bisects. Can also be invoked via `/slang-build`.
 license: Apache-2.0
-metadata:
-    github-path: skills/slang-build
-    github-ref: refs/heads/main
-    github-repo: https://github.com/shader-slang/slang-skills
 name: slang-build
 ---
 # Slang Build
