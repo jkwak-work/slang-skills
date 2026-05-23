@@ -1,11 +1,6 @@
 ---
 description: Platform-aware build instructions for the Slang compiler. Only invoke when explicitly called via /slang-build or referenced by other skills.
 license: Apache-2.0
-metadata:
-    github-path: skills/slang-build
-    github-ref: refs/heads/main
-    github-repo: https://github.com/shader-slang/slang-skills
-    github-tree-sha: fd1eb06b7116a8d9e86682699e5476575e0c1a40
 name: slang-build
 ---
 # Slang Build
