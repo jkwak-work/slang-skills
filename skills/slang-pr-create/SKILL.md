@@ -1,6 +1,6 @@
 ---
 name: slang-pr-create
-description: Create and publish a GitHub pull request for Slang work, defaulting to a draft PR against shader-slang/slang and its default branch unless the user specifies another repository. Use when asked to open, create, publish, or prepare a PR for a Slang branch, including WSL environments that require Windows-hosted tools unless --wsl is requested.
+description: Create and publish a GitHub pull request for Slang work, defaulting to a draft PR against shader-slang/slang and its default branch unless the user specifies another repository. Automatically use whenever asked to open, create, publish, or prepare a PR targeting any shader-slang/* repository, even if the user does not explicitly name this skill. Handles WSL environments that require Windows-hosted tools unless --wsl is requested.
 argument-hint: "[--repo owner/repo-or-url] [--no-draft] [--wsl]"
 allowed-tools: Bash Read Write Edit Grep Glob
 required-capabilities: shell git github-cli file-read
@@ -10,6 +10,9 @@ required-capabilities: shell git github-cli file-read
 
 Create a focused GitHub pull request from the current branch. Default to
 `shader-slang/slang`; if the user specifies a repo, use that repo instead.
+Use this skill for any request to create, open, publish, or prepare a PR
+targeting a `shader-slang/*` repository, even when the user does not explicitly
+invoke `/slang-pr-create`.
 
 **Usage**: `/slang-pr-create [--repo owner/repo-or-url] [--no-draft] [--wsl]`
 
