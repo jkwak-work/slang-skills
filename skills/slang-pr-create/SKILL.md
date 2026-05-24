@@ -34,9 +34,14 @@ not silently fall back to native WSL tools in this mode. If the user passes
 ```bash
 ARGS="${ARGUMENTS:-}"
 USE_WSL_TOOLS=false
+DRAFT=false
 if printf '%s\n' "$ARGS" | grep -Eq '(^|[[:space:]])--wsl([[:space:]]|$)'; then
   USE_WSL_TOOLS=true
   ARGS="$(printf '%s\n' "$ARGS" | sed -E 's/(^|[[:space:]])--wsl([[:space:]]|$)/ /; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+fi
+if printf '%s\n' "$ARGS" | grep -Eq '(^|[[:space:]])--draft([[:space:]]|$)'; then
+  DRAFT=true
+  ARGS="$(printf '%s\n' "$ARGS" | sed -E 's/(^|[[:space:]])--draft([[:space:]]|$)/ /; s/^[[:space:]]+//; s/[[:space:]]+$//')"
 fi
 
 is_wsl() {
@@ -201,6 +206,10 @@ LABEL_ARGS=()
 if [ "$REPO" = "shader-slang/slang" ]; then
   LABEL_ARGS=(--label "pr: non-breaking")
 fi
+DRAFT_ARGS=()
+if [ "$DRAFT" = true ]; then
+  DRAFT_ARGS=(--draft)
+fi
 
 "$GH" pr create \
   --repo "$REPO" \
@@ -209,6 +218,7 @@ fi
   --title "<title>" \
   --body-file "$BODY_FILE_ARG" \
   --assignee @me \
+  "${DRAFT_ARGS[@]}" \
   "${LABEL_ARGS[@]}"
 ```
 
@@ -226,6 +236,7 @@ HEAD_OWNER="${HEAD_REPO%%/*}"
   --title "<title>" \
   --body-file "$BODY_FILE_ARG" \
   --assignee @me \
+  "${DRAFT_ARGS[@]}" \
   "${LABEL_ARGS[@]}"
 ```
 
