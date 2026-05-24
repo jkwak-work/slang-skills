@@ -118,8 +118,9 @@ BASE="$("$GH" repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.n
 BRANCH="$("$GIT" branch --show-current | clean_line)"
 ```
 
-Determine the full issue references that the PR is intended to fix before
-creating the PR. The PR body must use `owner/repo#123`, not just `#123`.
+Try to determine the full issue references that the PR is intended to fix
+before creating the PR. Closing references must use `owner/repo#123`, not just
+`#123`.
 
 First ask GitHub whether the current branch is already linked to one or more
 issue development branches. `gh issue develop --list` works once an issue
@@ -157,14 +158,16 @@ mapfile -t LINKED_ISSUE_REFS < <("$GH" api graphql --paginate --slurp \
 If `jq` is unavailable, run the same GraphQL query and inspect the JSON output
 manually for `linkedBranches` entries whose `ref.name` equals `$BRANCH`.
 
-If this returns one or more issue references, use all of the references that
-the PR fixes. If it returns none, prefer full issue references explicitly
+If this returns one or more issue references, include all of the references
+that the PR fixes. If it returns none, use any full issue references explicitly
 provided by the user. If only issue numbers are provided or inferred from clear
 local evidence such as the branch name, commit message, or existing task
 context, combine each issue number with `$REPO_NAME_WITH_OWNER`. If any issue
-belongs to a different repository, use that issue's `owner/repo` instead. If
-the full set of issue references cannot be determined confidently, stop and ask
-the user before creating the PR.
+belongs to a different repository, use that issue's `owner/repo` instead.
+
+Do not stop PR creation only because issue references cannot be inferred. Use
+only confidently determined issue references, skip ambiguous or unavailable
+ones, and omit closing lines entirely if no issue reference is known.
 
 PowerShell / `gh.exe` equivalent:
 
@@ -250,18 +253,15 @@ Prepare a concise PR body in `$BODY_FILE`. Prefer this structure:
 
 ## Test Plan
 - ...
-
-Fixes owner/repo#XXX
-Fixes owner/repo#YYY
 ```
 
 Use the exact tests or checks that were actually run. If no validation was run,
 state that clearly in the Test Plan.
 
-Replace each placeholder with a full issue reference the PR fixes, such as
-`shader-slang/slang#123`. Include one `Fixes owner/repo#XXX` line per fixed
-issue, and do not duplicate issue references. Remove the second `Fixes` line
-when the PR fixes only one issue.
+When one or more fixed issue references are known, append one
+`Fixes shader-slang/slang#123`-style line per fixed issue, and do not duplicate
+issue references. Do not include placeholder closing text. If no issue
+reference is known, omit `Fixes` lines and continue creating the PR.
 
 For `shader-slang/slang`, label the PR as `pr: non-breaking` by default unless
 the change is intentionally breaking. For any other repo, only pass a label if
