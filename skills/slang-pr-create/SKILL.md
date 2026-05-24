@@ -161,7 +161,20 @@ there is nothing committed to open as a PR.
 Push the branch if needed:
 
 ```bash
-"$GIT" push -u origin HEAD
+PUSH_REMOTE="$("$GIT" config --get "branch.$BRANCH.remote" | clean_line || true)"
+if [ -z "$PUSH_REMOTE" ]; then
+  for remote in $("$GIT" remote); do
+    if "$GIT" remote get-url --push "$remote" >/dev/null 2>&1; then
+      PUSH_REMOTE="$remote"
+      break
+    fi
+  done
+fi
+if [ -z "$PUSH_REMOTE" ]; then
+  echo "Could not determine a push remote. Ask before adding a remote or changing push destinations."
+  exit 1
+fi
+"$GIT" push -u "$PUSH_REMOTE" HEAD
 ```
 
 Prepare a concise PR body in `$BODY_FILE`. Prefer this structure:
@@ -203,7 +216,8 @@ If the branch was pushed to a fork rather than the target repository, use
 `--head "<user>:<branch>"`. Determine the fork owner from the push remote:
 
 ```bash
-HEAD_REPO="$("$GH" repo view "$("$GIT" remote get-url --push origin)" --json nameWithOwner --jq .nameWithOwner | clean_line)"
+PUSH_URL="$("$GIT" remote get-url --push "$PUSH_REMOTE" | clean_line)"
+HEAD_REPO="$("$GH" repo view "$PUSH_URL" --json nameWithOwner --jq .nameWithOwner | clean_line)"
 HEAD_OWNER="${HEAD_REPO%%/*}"
 "$GH" pr create \
   --repo "$REPO" \

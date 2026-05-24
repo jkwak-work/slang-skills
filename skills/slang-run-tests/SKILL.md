@@ -30,7 +30,7 @@ is_wsl() {
   [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null
 }
 
-BIN_PATH="./build/<preset>/bin"
+BIN_PATH="${BIN_PATH:-build/Debug/bin}"
 if is_wsl && [ "$USE_WSL_TOOLS" = false ]; then
   SLANG_TEST="$BIN_PATH/slang-test.exe"
   SLANGC="$BIN_PATH/slangc.exe"
