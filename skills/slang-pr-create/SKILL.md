@@ -1,7 +1,7 @@
 ---
 name: slang-pr-create
-description: Create and publish a GitHub pull request for Slang work, defaulting to shader-slang/slang and its default branch unless the user specifies another repository. Use when asked to open, create, publish, or prepare a PR for a Slang branch, including WSL environments that require Windows-hosted tools unless --wsl is requested.
-argument-hint: "[--repo owner/repo-or-url] [--draft] [--wsl]"
+description: Create and publish a GitHub pull request for Slang work, defaulting to a draft PR against shader-slang/slang and its default branch unless the user specifies another repository. Use when asked to open, create, publish, or prepare a PR for a Slang branch, including WSL environments that require Windows-hosted tools unless --wsl is requested.
+argument-hint: "[--repo owner/repo-or-url] [--no-draft] [--wsl]"
 allowed-tools: Bash Read Write Edit Grep Glob
 required-capabilities: shell git github-cli file-read
 ---
@@ -11,7 +11,10 @@ required-capabilities: shell git github-cli file-read
 Create a focused GitHub pull request from the current branch. Default to
 `shader-slang/slang`; if the user specifies a repo, use that repo instead.
 
-**Usage**: `/slang-pr-create [--repo owner/repo-or-url] [--draft] [--wsl]`
+**Usage**: `/slang-pr-create [--repo owner/repo-or-url] [--no-draft] [--wsl]`
+
+PRs are created as drafts by default. Use `--no-draft` only when the PR should
+be ready for review immediately. Created PRs are assigned to `@me` by default.
 
 `--wsl` means "use native WSL tools" when running inside WSL. Without it,
 require Windows-hosted `.exe` tools such as `gh.exe`. If they are missing, stop
@@ -34,14 +37,14 @@ not silently fall back to native WSL tools in this mode. If the user passes
 ```bash
 ARGS="${ARGUMENTS:-}"
 USE_WSL_TOOLS=false
-DRAFT=false
+DRAFT=true
 if printf '%s\n' "$ARGS" | grep -Eq '(^|[[:space:]])--wsl([[:space:]]|$)'; then
   USE_WSL_TOOLS=true
   ARGS="$(printf '%s\n' "$ARGS" | sed -E 's/(^|[[:space:]])--wsl([[:space:]]|$)/ /; s/^[[:space:]]+//; s/[[:space:]]+$//')"
 fi
-if printf '%s\n' "$ARGS" | grep -Eq '(^|[[:space:]])--draft([[:space:]]|$)'; then
-  DRAFT=true
-  ARGS="$(printf '%s\n' "$ARGS" | sed -E 's/(^|[[:space:]])--draft([[:space:]]|$)/ /; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+if printf '%s\n' "$ARGS" | grep -Eq '(^|[[:space:]])--no-draft([[:space:]]|$)'; then
+  DRAFT=false
+  ARGS="$(printf '%s\n' "$ARGS" | sed -E 's/(^|[[:space:]])--no-draft([[:space:]]|$)/ /; s/^[[:space:]]+//; s/[[:space:]]+$//')"
 fi
 
 is_wsl() {
@@ -222,6 +225,9 @@ fi
   "${LABEL_ARGS[@]}"
 ```
 
+Keep `--assignee @me` in the command unless the user explicitly requests a
+different assignee.
+
 If the branch was pushed to a fork rather than the target repository, use
 `--head "<user>:<branch>"`. Determine the fork owner from the push remote:
 
@@ -250,11 +256,12 @@ gh.exe pr create `
   --title "PR title" `
   --body-file .\pr-body.md `
   --assignee "@me" `
+  --draft `
   --label "pr: non-breaking"
 ```
 
-Use `--draft` only if the user requests a draft PR or the work is intentionally
-not ready for review.
+Omit `--draft` only if the user passes `--no-draft` or explicitly requests a PR
+that is ready for review.
 
 ## After Creation
 
