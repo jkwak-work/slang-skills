@@ -114,11 +114,12 @@ such as `origin` or `upstream`.
 
 If a bare token with no slash matches `git remote`, treat that remote's URL as
 the target repository and prefer that same remote as the push remote. If the bare
-token is `upstream` but no `upstream` git remote exists, treat it as the default
-upstream Slang repository, `shader-slang/slang`. If omitted, behave as if
-`origin` was provided. Do not default to `shader-slang/slang` when any other
-explicit repository or remote argument was provided; fail instead if it cannot
-be resolved.
+token is `upstream` but no `upstream` git remote exists, infer
+`shader-slang/<repo-name>` from the local `origin` repository name, so forks of
+repositories such as `shader-slang/slangpy` target the matching upstream
+repository. If omitted, behave as if `origin` was provided. Do not default to a
+specific `shader-slang/*` repository when any explicit repository or remote
+argument was provided; fail instead if it cannot be resolved.
 
 ```bash
 # Parse the remaining skill arguments after `--wsl` and `--no-draft` are removed.
@@ -161,7 +162,18 @@ if [[ "$TARGET_ARG" != */* && "$TARGET_ARG" != http://* && "$TARGET_ARG" != http
     TARGET_URL="$("$GIT" remote get-url "$TARGET_REMOTE" | clean_line)"
     REPO="$("$GH" repo view "$TARGET_URL" --json nameWithOwner --jq .nameWithOwner | clean_line)"
   elif [ "$TARGET_ARG" = "upstream" ]; then
-    REPO="shader-slang/slang"
+    ORIGIN_URL="$("$GIT" remote get-url origin 2>/dev/null | clean_line || true)"
+    if [ -z "$ORIGIN_URL" ]; then
+      echo "Could not infer shader-slang upstream target because the origin remote is missing"
+      exit 1
+    fi
+    ORIGIN_REPO="$("$GH" repo view "$ORIGIN_URL" --json nameWithOwner --jq .nameWithOwner | clean_line)"
+    ORIGIN_REPO_NAME="${ORIGIN_REPO#*/}"
+    if [ -z "$ORIGIN_REPO_NAME" ] || [ "$ORIGIN_REPO_NAME" = "$ORIGIN_REPO" ]; then
+      echo "Could not infer shader-slang upstream target from origin repository: $ORIGIN_REPO"
+      exit 1
+    fi
+    REPO="shader-slang/$ORIGIN_REPO_NAME"
   else
     echo "Could not resolve requested or default PR target as a GitHub repo or git remote: $TARGET_ARG"
     exit 1
@@ -393,17 +405,22 @@ reference from each issue. Do not duplicate issue references or include
 placeholder closing text. If no issue reference is known, omit `Fixes` lines
 and continue creating the PR.
 
-For `shader-slang/slang`, label the PR as `pr: non-breaking` by default unless
-the change is intentionally breaking. For any other repo, only pass a label if
-the repository has the label or the user explicitly requested one.
+For `shader-slang/*` repositories, label the PR as `pr: non-breaking` by
+default when the repository has that label, unless the change is intentionally
+breaking. For any other repo, only pass a label if the repository has the label
+or the user explicitly requested one.
 
 Create the PR:
 
 ```bash
 LABEL_ARGS=()
-if [ "$REPO" = "shader-slang/slang" ]; then
-  LABEL_ARGS=(--label "pr: non-breaking")
-fi
+case "$REPO" in
+  shader-slang/*)
+    if "$GH" label list --repo "$REPO" --json name --jq '.[].name' | clean_line | grep -Fxq 'pr: non-breaking'; then
+      LABEL_ARGS=(--label "pr: non-breaking")
+    fi
+    ;;
+esac
 DRAFT_ARGS=()
 if [ "$DRAFT" = true ]; then
   DRAFT_ARGS=(--draft)
@@ -474,6 +491,14 @@ For Windows PowerShell:
 
 ```powershell
 $headBranch = $branch
+$repoNameWithOwner = $repo -replace '^https://github\.com/', '' -replace '^git@github\.com:', '' -replace '\.git$', ''
+$labelArgs = @()
+if ($repoNameWithOwner -like "shader-slang/*") {
+  $labels = gh.exe label list --repo $repo --json name --jq ".[].name"
+  if ($labels -contains "pr: non-breaking") {
+    $labelArgs += @("--label", "pr: non-breaking")
+  }
+}
 $prUrl = gh.exe pr create `
   --repo $repo `
   --base $base `
@@ -482,9 +507,8 @@ $prUrl = gh.exe pr create `
   --body-file .\pr-body.md `
   --assignee "@me" `
   --draft `
-  --label "pr: non-breaking"
+  @labelArgs
 gh.exe pr comment $prUrl --body "@coderabbitai review"
-$repoNameWithOwner = $repo -replace '^https://github\.com/', '' -replace '^git@github\.com:', '' -replace '\.git$', ''
 if ($repoNameWithOwner -like "shader-slang/*") {
   gh.exe pr comment $prUrl --body "/ci all"
 }
