@@ -189,9 +189,9 @@ BASE="$("$GH" repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.n
 BRANCH="$("$GIT" branch --show-current | clean_line)"
 ```
 
-Try to determine the full issue references that the PR is intended to fix
-before creating the PR. Closing references must use `owner/repo#123`, not just
-`#123`.
+Try to determine the issue references that the PR is intended to fix before
+creating the PR. Closing references should use `Fixes #123` for same-repository
+issues and `Fixes owner/repo#123` for cross-repository issues.
 
 First ask GitHub whether the current branch is already linked to one or more
 issue development branches. `gh issue develop --list` works once an issue
