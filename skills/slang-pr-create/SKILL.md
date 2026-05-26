@@ -437,9 +437,10 @@ in the PR body:
 2. Work around or resolve this by ...
 ```
 
-The `## Breaking change` section is required when the PR has the `pr: breaking`
-label. It must explain both the problems the PR may cause for existing systems
-and shaders, and how users can work around or properly resolve those problems.
+The `## Breaking change` section is required when the PR is intentionally
+backward-compatibility breaking or has the `pr: breaking` label. It must explain
+both the problems the PR may cause for existing systems and shaders, and how
+users can work around or properly resolve those problems.
 
 When one or more fixed issue references are known, put one `Fixes #123` line per
 fixed issue at the top of the PR body. Use the target repository's local issue
@@ -448,23 +449,27 @@ cross-repository issues. Do not duplicate issue references, invent issue
 references, or include placeholder closing text. If no issue reference is known,
 omit `Fixes` lines.
 
-Every PR must have exactly one compatibility label: `pr: non-breaking` or
-`pr: breaking`. These labels cannot coexist. Use `pr: non-breaking` by default
-unless the user explicitly says the change is breaking or the change is
-intentionally backward-compatibility breaking. Use `pr: breaking` only for
-breaking changes, and only when the PR body includes the required
-`## Breaking change` section described above. Do not silently omit the
-compatibility label; if the target repository does not have the selected label,
-stop and ask before creating labels or changing the target repository.
+Use at most one compatibility label: `pr: non-breaking` or `pr: breaking`. These
+labels cannot coexist. Use `pr: breaking` only when the change is clearly
+backward-compatibility breaking. Use `pr: non-breaking` only when the user says
+the PR is non-breaking or the non-breaking classification is otherwise clear.
+When the compatibility classification is unclear, do not guess and do not apply
+either label. Compatibility labels are optional metadata; if the target
+repository does not have the selected label, continue creating the PR without
+that label instead of creating labels or blocking PR creation.
 
 Create the PR:
 
 ```bash
 LABEL_ARGS=()
 BREAKING_CHANGE=false
+NON_BREAKING_CHANGE=false
 # Set BREAKING_CHANGE=true only when the user explicitly says the PR is breaking
 # or the change is intentionally backward-compatibility breaking.
-COMPAT_LABEL="pr: non-breaking"
+# Set NON_BREAKING_CHANGE=true only when the user says the PR is non-breaking or
+# the non-breaking classification is otherwise clear. Leave both false when
+# unclear.
+COMPAT_LABEL=""
 if [ "$BREAKING_CHANGE" = true ]; then
   COMPAT_LABEL="pr: breaking"
   BODY_FILE_READ="$BODY_FILE"
@@ -475,16 +480,25 @@ if [ "$BREAKING_CHANGE" = true ]; then
   fi
   BREAKING_HEADING_REGEX='^##[[:space:]]+Breaking change([[:space:]:]|$)'
   if ! grep -Eq "$BREAKING_HEADING_REGEX" "$BODY_FILE_READ"; then
-    echo "PRs labeled 'pr: breaking' must include a '## Breaking change' section in the PR body."
+    echo "Breaking PRs must include a '## Breaking change' section in the PR body."
     exit 1
   fi
+elif [ "$NON_BREAKING_CHANGE" = true ]; then
+  COMPAT_LABEL="pr: non-breaking"
 fi
-if ! "$GH" label list --repo "$REPO" --limit 200 --json name --jq '.[].name' | clean_line | grep -Fxq "$COMPAT_LABEL"; then
-  echo "Target repository is missing required compatibility label: $COMPAT_LABEL"
-  echo "Create the label or choose a target repository that has it before creating the PR."
-  exit 1
+if [ -n "$COMPAT_LABEL" ]; then
+  LABEL_NAMES="$("$GH" label list \
+    --repo "$REPO" \
+    --limit 200 \
+    --json name \
+    --jq '.[].name' | clean_line)"
+  if printf '%s\n' "$LABEL_NAMES" | grep -Fxq "$COMPAT_LABEL"; then
+    LABEL_ARGS=(--label "$COMPAT_LABEL")
+  else
+    echo "Target repository is missing optional compatibility label: $COMPAT_LABEL"
+    echo "Creating the PR without a compatibility label."
+  fi
 fi
-LABEL_ARGS=(--label "$COMPAT_LABEL")
 DRAFT_ARGS=()
 if [ "$DRAFT" = true ]; then
   DRAFT_ARGS=(--draft)
@@ -558,18 +572,30 @@ $headBranch = $branch
 $repoNameWithOwner = $repo -replace '^https://github\.com/', '' -replace '^git@github\.com:', '' -replace '\.git$', ''
 $bodyFile = (git.exe rev-parse --git-path slang-pr-body.md).Trim()
 $breakingChange = $false
+$nonBreakingChange = $false
 # Set $breakingChange = $true only when the user explicitly says the PR is breaking
 # or the change is intentionally backward-compatibility breaking.
-$compatLabel = if ($breakingChange) { "pr: breaking" } else { "pr: non-breaking" }
+# Set $nonBreakingChange = $true only when the user says the PR is non-breaking
+# or the non-breaking classification is otherwise clear.
+$compatLabel = $null
+if ($breakingChange) {
+  $compatLabel = "pr: breaking"
+} elseif ($nonBreakingChange) {
+  $compatLabel = "pr: non-breaking"
+}
 $hasBreakingChangeSection = Select-String -LiteralPath $bodyFile -SimpleMatch "## Breaking change" -Quiet
 if ($breakingChange -and -not $hasBreakingChangeSection) {
-  throw "PRs labeled 'pr: breaking' must include a '## Breaking change' section in the PR body."
+  throw "Breaking PRs must include a '## Breaking change' section in the PR body."
 }
-$labels = @(gh.exe label list --repo $repo --limit 200 --json name --jq ".[].name")
-if ($labels -notcontains $compatLabel) {
-  throw "Target repository is missing required compatibility label: $compatLabel"
+$labelArgs = @()
+if ($compatLabel) {
+  $labels = @(gh.exe label list --repo $repo --limit 200 --json name --jq ".[].name")
+  if ($labels -contains $compatLabel) {
+    $labelArgs = @("--label", $compatLabel)
+  } else {
+    Write-Warning "Target repository is missing optional compatibility label: $compatLabel"
+  }
 }
-$labelArgs = @("--label", $compatLabel)
 $prUrl = gh.exe pr create `
   --repo $repo `
   --base $base `
