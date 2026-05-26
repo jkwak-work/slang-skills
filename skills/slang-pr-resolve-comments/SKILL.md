@@ -125,8 +125,10 @@ orchestrator should rerun later, then return.
 5. After pushing new commits, update the PR description if the new commits made it stale or inaccurate (see **PR Description Updates** below).
 6. Reply to and resolve LLM-owned threads that have been addressed, including
    threads that became outdated because a pushed commit addressed them.
-7. Leave human-owned threads unresolved for the human reviewer to resolve manually.
-8. At the end of each pass, check the Completion Criteria below:
+7. If this pass pushed one or more commits, explicitly trigger LLM reviews for
+   the new commits instead of relying on automatic review behavior.
+8. Leave human-owned threads unresolved for the human reviewer to resolve manually.
+9. At the end of each pass, check the Completion Criteria below:
    - If **all criteria are met**: report the PR is clean and **do not reschedule** — the loop is done.
    - Otherwise: schedule or request the next pass as described below, then return. The next pass should re-enter this skill with the same PR argument.
 
@@ -185,6 +187,42 @@ Use concise commit messages that describe the reason for the follow-up change, f
 "$GIT" commit -m "Address review feedback"
 "$GIT" push
 ```
+
+## LLM Review Requests After Push
+
+After every successful push performed by this skill, explicitly request fresh
+LLM reviews for the new commits. Do this even when CI is still running, the PR is
+draft, or the reviewer previously skipped automatic review. Do not rely on
+automatic review triggers alone.
+
+Post all known LLM reviewer trigger comments that are used by the repository.
+For the Slang repositories, request CodeRabbit and Gemini reviews:
+
+```bash
+LLM_REVIEW_REQUESTED=false
+
+request_llm_reviews_after_push() {
+  pr_ref="$1"
+  "$GH" pr comment "$pr_ref" --body '@coderabbitai review'
+  "$GH" pr comment "$pr_ref" --body '/gemini review'
+  LLM_REVIEW_REQUESTED=true
+}
+```
+
+Call this helper once after each pushed commit batch and after any PR description
+update needed for that batch:
+
+```bash
+request_llm_reviews_after_push "$PR"
+```
+
+If a reviewer app is not installed or does not respond, do not treat that alone
+as a blocker. Report which review trigger comments were posted and continue
+monitoring checks and review threads.
+
+When `LLM_REVIEW_REQUESTED=true`, do not report final success in the same pass.
+Schedule or request one more pass so the newly requested reviews have a chance
+to add feedback on the pushed commits.
 
 ## PR Description Updates
 
@@ -326,7 +364,8 @@ For each failure:
 3. Otherwise, reproduce locally when feasible.
 4. Fix the code or test.
 5. Run the narrowest reliable validation first, then broader validation when the change warrants it.
-6. Push to the PR branch.
+6. Push to the PR branch, update the PR description if needed, then call
+   `request_llm_reviews_after_push "$PR"`.
 7. Continue monitoring until the new checks finish.
 
 ### Intermittent / Infra Failures
@@ -423,6 +462,7 @@ if [ -z "$PUSH_REMOTE" ]; then
   exit 1
 fi
 "$GIT" push --force-with-lease "$PUSH_REMOTE" "HEAD:$HEAD_BRANCH"
+request_llm_reviews_after_push "$PR"
 ```
 
 ## Completion Criteria
@@ -437,6 +477,8 @@ After every pass, evaluate whether to stop or reschedule:
   merely because it became outdated after a pushed fix.
 - `"$GH" pr view "$PR" --json mergeStateStatus --jq .mergeStateStatus` does not report `DIRTY` (actual merge conflicts) or `UNKNOWN` (still calculating). A status of `BEHIND` (branch is behind base but no conflicts) is acceptable — GitHub auto-merge handles it.
 - All local commits needed for the fixes have been pushed to the PR branch.
+- No LLM review trigger was posted in the current pass without a later pass
+  inspecting the resulting reviews.
 
 **Continue later** when any of the above is not yet true. If a single-pass run was requested (`--single-pass` or `SINGLE_PASS=true`) or scheduling is unavailable, report what is still pending, when to check again, and the exact rerun prompt/command, then return. Otherwise, schedule a non-blocking follow-up when the current agent host supports one, using `delaySeconds = <interval>` (see **Choosing `<interval>`** above), then return.
 
