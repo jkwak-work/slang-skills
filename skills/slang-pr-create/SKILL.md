@@ -473,7 +473,8 @@ if [ "$BREAKING_CHANGE" = true ]; then
       *\\*|[A-Za-z]:*) BODY_FILE_READ="$(wslpath -u "$BODY_FILE_READ")" ;;
     esac
   fi
-  if ! grep -Fxq '## Breaking change' "$BODY_FILE_READ"; then
+  BREAKING_HEADING_REGEX='^##[[:space:]]+Breaking change([[:space:]:]|$)'
+  if ! grep -Eq "$BREAKING_HEADING_REGEX" "$BODY_FILE_READ"; then
     echo "PRs labeled 'pr: breaking' must include a '## Breaking change' section in the PR body."
     exit 1
   fi

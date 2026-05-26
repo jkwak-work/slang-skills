@@ -323,6 +323,9 @@ is_trusted_comment_author() {
     copilot-pull-request-reviewer\[bot\]|copilot-swe-agent\[bot\])
       return 0
       ;;
+    github-copilot\[bot\])
+      return 0
+      ;;
     gemini-code-assist|gemini-code-assist\[bot\]|claude|claude\[bot\])
       return 0
       ;;
