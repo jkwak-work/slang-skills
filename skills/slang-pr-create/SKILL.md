@@ -386,7 +386,10 @@ if ! "$GIT" push -u "$PUSH_REMOTE" "HEAD:refs/heads/$PUBLISHED_BRANCH" 2>"$PUSH_
 fi
 ```
 
-Prepare a concise PR body in `$BODY_FILE`. Use this structure:
+Prepare a concise PR body in `$BODY_FILE`. Use this structure, omitting any
+section that is not applicable to the PR. Replace placeholder guidance with real
+content for sections that remain; do not leave empty headings or `[[...]]`
+placeholder text in the final PR description.
 
 ```markdown
 [[Add one line per confirmed issue, e.g., `Fixes #123` or `Fixes owner/repo#123`.
