@@ -245,6 +245,10 @@ ones, and omit closing lines entirely if no issue reference is known.
 
 PowerShell / `gh.exe` equivalent:
 
+This snippet assumes `$repo` has already been resolved and normalized using the
+same input-resolution rules described above. Do not use the placeholder value
+literally.
+
 ```powershell
 $repo = "<resolved-target-repo>"
 $repoNameWithOwner = gh.exe repo view $repo --json nameWithOwner --jq ".nameWithOwner"
@@ -526,7 +530,7 @@ $compatLabel = if ($breakingChange) { "pr: breaking" } else { "pr: non-breaking"
 if ($breakingChange -and -not (Select-String -LiteralPath ".\pr-body.md" -SimpleMatch "## Breaking change" -Quiet)) {
   throw "PRs labeled 'pr: breaking' must include a '## Breaking change' section in the PR body."
 }
-$labels = gh.exe label list --repo $repo --limit 200 --json name --jq ".[].name"
+$labels = @(gh.exe label list --repo $repo --limit 200 --json name --jq ".[].name")
 if ($labels -notcontains $compatLabel) {
   throw "Target repository is missing required compatibility label: $compatLabel"
 }
