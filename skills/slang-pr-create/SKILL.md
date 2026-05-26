@@ -94,6 +94,11 @@ Write the PR body outside the tracked worktree, then pass a Windows path from
 
 ```bash
 BODY_FILE="$("$GIT" rev-parse --git-path slang-pr-body.md | clean_line)"
+if is_wsl && command -v wslpath >/dev/null 2>&1; then
+  case "$BODY_FILE" in
+    *\\*|[A-Za-z]:*) BODY_FILE="$(wslpath -u "$BODY_FILE")" ;;
+  esac
+fi
 BODY_FILE_ARG="$BODY_FILE"
 if is_wsl && [ "${GH%.exe}" != "$GH" ] && command -v wslpath >/dev/null 2>&1; then
   BODY_FILE_ARG="$(wslpath -w "$BODY_FILE")"
@@ -465,7 +470,7 @@ if [ "$BREAKING_CHANGE" = true ]; then
   BODY_FILE_READ="$BODY_FILE"
   if is_wsl && command -v wslpath >/dev/null 2>&1; then
     case "$BODY_FILE_READ" in
-      [A-Za-z]:*) BODY_FILE_READ="$(wslpath -u "$BODY_FILE_READ")" ;;
+      *\\*|[A-Za-z]:*) BODY_FILE_READ="$(wslpath -u "$BODY_FILE_READ")" ;;
     esac
   fi
   if ! grep -Fxq '## Breaking change' "$BODY_FILE_READ"; then
@@ -550,11 +555,13 @@ For Windows PowerShell:
 ```powershell
 $headBranch = $branch
 $repoNameWithOwner = $repo -replace '^https://github\.com/', '' -replace '^git@github\.com:', '' -replace '\.git$', ''
+$bodyFile = (git.exe rev-parse --git-path slang-pr-body.md).Trim()
 $breakingChange = $false
 # Set $breakingChange = $true only when the user explicitly says the PR is breaking
 # or the change is intentionally backward-compatibility breaking.
 $compatLabel = if ($breakingChange) { "pr: breaking" } else { "pr: non-breaking" }
-if ($breakingChange -and -not (Select-String -LiteralPath ".\pr-body.md" -SimpleMatch "## Breaking change" -Quiet)) {
+$hasBreakingChangeSection = Select-String -LiteralPath $bodyFile -SimpleMatch "## Breaking change" -Quiet
+if ($breakingChange -and -not $hasBreakingChangeSection) {
   throw "PRs labeled 'pr: breaking' must include a '## Breaking change' section in the PR body."
 }
 $labels = @(gh.exe label list --repo $repo --limit 200 --json name --jq ".[].name")
@@ -567,7 +574,7 @@ $prUrl = gh.exe pr create `
   --base $base `
   --head $headBranch `
   --title "PR title" `
-  --body-file .\pr-body.md `
+  --body-file $bodyFile `
   --assignee "@me" `
   --draft `
   @labelArgs
