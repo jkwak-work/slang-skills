@@ -2,11 +2,6 @@
 allowed-tools: Bash Read Write Edit Grep Glob
 argument-hint: '[--repo owner/repo-or-url-or-remote] [--no-draft] [--wsl]'
 description: Create and publish a GitHub pull request for Slang work, defaulting to a draft PR against the local origin remote and its default branch unless the user specifies another repository or remote. Use for Slang-related PR creation requests, including shader-slang/* targets even when the user does not explicitly name this skill. Handles WSL environments that require Windows-hosted tools unless --wsl is requested.
-metadata:
-    github-path: skills/slang-pr-create
-    github-ref: refs/heads/main
-    github-repo: https://github.com/shader-slang/slang-skills
-    github-tree-sha: c239eee0f14e90f5142235665434de3f6da445ab
 name: slang-pr-create
 required-capabilities: shell git github-cli file-read
 ---
@@ -160,17 +155,18 @@ if [[ "$TARGET_ARG" != */* && "$TARGET_ARG" != http://* && "$TARGET_ARG" != http
   if "$GIT" remote get-url "$TARGET_ARG" >/dev/null 2>&1; then
     TARGET_REMOTE="$TARGET_ARG"
     TARGET_URL="$("$GIT" remote get-url "$TARGET_REMOTE" | clean_line)"
-    REPO="$("$GH" repo view "$TARGET_URL" --json nameWithOwner --jq .nameWithOwner | clean_line)"
+    REPO="$TARGET_URL"
   elif [ "$TARGET_ARG" = "upstream" ]; then
     ORIGIN_URL="$("$GIT" remote get-url origin 2>/dev/null | clean_line || true)"
     if [ -z "$ORIGIN_URL" ]; then
       echo "Could not infer shader-slang upstream target because the origin remote is missing"
       exit 1
     fi
-    ORIGIN_REPO="$("$GH" repo view "$ORIGIN_URL" --json nameWithOwner --jq .nameWithOwner | clean_line)"
-    ORIGIN_REPO_NAME="${ORIGIN_REPO#*/}"
-    if [ -z "$ORIGIN_REPO_NAME" ] || [ "$ORIGIN_REPO_NAME" = "$ORIGIN_REPO" ]; then
-      echo "Could not infer shader-slang upstream target from origin repository: $ORIGIN_REPO"
+    ORIGIN_REPO_NAME="${ORIGIN_URL%/}"
+    ORIGIN_REPO_NAME="${ORIGIN_REPO_NAME##*/}"
+    ORIGIN_REPO_NAME="${ORIGIN_REPO_NAME%.git}"
+    if [ -z "$ORIGIN_REPO_NAME" ]; then
+      echo "Could not infer shader-slang upstream target from origin URL: $ORIGIN_URL"
       exit 1
     fi
     REPO="shader-slang/$ORIGIN_REPO_NAME"
