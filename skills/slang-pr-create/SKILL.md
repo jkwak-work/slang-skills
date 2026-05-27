@@ -18,6 +18,7 @@ invoke `/slang-pr-create`.
 
 PRs are created as drafts by default. Use `--no-draft` only when the PR should
 be ready for review immediately. Created PRs are assigned to `@me` by default.
+If the target repository has a `CoPilot` label, add it when creating the PR.
 After creating a draft PR, request CodeRabbit review by commenting
 `@coderabbitai review`. If the target repository is under `shader-slang/`, also
 post `/ci all` to trigger CI.
@@ -327,16 +328,32 @@ placeholder closing text. If no issue reference is known, omit `Fixes` lines
 and continue creating the PR.
 
 For `shader-slang/slang`, label the PR as `pr: non-breaking` by default unless
-the change is intentionally breaking. For any other repo, only pass a label if
+the change is intentionally breaking. Also add the exact `CoPilot` label when
+the target repository has that label. For any other repo, only pass a label if
 the repository has the label or the user explicitly requested one.
 
 Create the PR:
 
 ```bash
 LABEL_ARGS=()
-if [ "$REPO" = "shader-slang/slang" ]; then
+if [ "$REPO_NAME_WITH_OWNER" = "shader-slang/slang" ]; then
   LABEL_ARGS=(--label "pr: non-breaking")
 fi
+
+repo_has_label() {
+  label_name="$1"
+  "$GH" label list \
+    --repo "$REPO_NAME_WITH_OWNER" \
+    --search "$label_name" \
+    --limit 100 \
+    --json name \
+    --jq '.[].name' 2>/dev/null | clean_line | grep -Fxq "$label_name"
+}
+
+if repo_has_label "CoPilot"; then
+  LABEL_ARGS+=(--label "CoPilot")
+fi
+
 DRAFT_ARGS=()
 if [ "$DRAFT" = true ]; then
   DRAFT_ARGS=(--draft)
@@ -406,20 +423,36 @@ printf '%s\n' "$PR_URL"
 For Windows PowerShell:
 
 ```powershell
+$GH = "gh.exe"
 $headBranch = $branch
-$prUrl = gh.exe pr create `
-  --repo $repo `
-  --base $base `
-  --head $headBranch `
-  --title "PR title" `
-  --body-file .\pr-body.md `
-  --assignee "@me" `
-  --draft `
-  --label "pr: non-breaking"
-gh.exe pr comment $prUrl --body "@coderabbitai review"
 $repoNameWithOwner = $repo -replace '^https://github\.com/', '' -replace '^git@github\.com:', '' -replace '\.git$', ''
+$labelArgs = @()
+if ($repoNameWithOwner -eq "shader-slang/slang") {
+  $labelArgs += @("--label", "pr: non-breaking")
+}
+$hasCopilotLabel = & $GH label list `
+  --repo $repoNameWithOwner `
+  --search "CoPilot" `
+  --limit 100 `
+  --json name `
+  --jq ".[].name" 2>$null | Where-Object { $_ -eq "CoPilot" }
+if ($hasCopilotLabel) {
+  $labelArgs += @("--label", "CoPilot")
+}
+$prCreateArgs = @(
+  "pr", "create",
+  "--repo", $repo,
+  "--base", $base,
+  "--head", $headBranch,
+  "--title", "PR title",
+  "--body-file", ".\pr-body.md",
+  "--assignee", "@me",
+  "--draft"
+) + $labelArgs
+$prUrl = & $GH @prCreateArgs
+& $GH pr comment $prUrl --body "@coderabbitai review"
 if ($repoNameWithOwner -like "shader-slang/*") {
-  gh.exe pr comment $prUrl --body "/ci all"
+  & $GH pr comment $prUrl --body "/ci all"
 }
 $prUrl
 ```
@@ -430,8 +463,8 @@ that is ready for review.
 ## After Creation
 
 Report the PR URL, the base branch, the published head branch, whether the push
-fell back to a new remote branch name, whether a CodeRabbit review request was
-posted, whether `/ci all` was posted, and whether any validation was run. If PR
-creation fails because the branch was not pushed to a usable remote or the target
-repo differs from the local `origin`, explain the failure and ask before adding
-remotes or changing push destinations.
+fell back to a new remote branch name, which labels were applied, whether a
+CodeRabbit review request was posted, whether `/ci all` was posted, and whether
+any validation was run. If PR creation fails because the branch was not pushed
+to a usable remote or the target repo differs from the local `origin`, explain
+the failure and ask before adding remotes or changing push destinations.
