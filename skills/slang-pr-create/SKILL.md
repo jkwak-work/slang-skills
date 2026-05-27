@@ -1,6 +1,6 @@
 ---
 name: slang-pr-create
-description: Create and publish a GitHub pull request for Slang work, defaulting to a draft PR against shader-slang/slang and its default branch unless the user specifies another repository. Automatically use whenever asked to open, create, publish, or prepare a PR targeting any shader-slang/* repository, even if the user does not explicitly name this skill. Handles WSL environments that require Windows-hosted tools unless --wsl is requested.
+description: Create and publish a GitHub pull request for Slang work, defaulting to a draft PR for shader-slang/* targets and a ready PR otherwise. Automatically use whenever asked to open, create, publish, or prepare a PR targeting any shader-slang/* repository, even if the user does not explicitly name this skill. Handles WSL environments that require Windows-hosted tools unless --wsl is requested.
 argument-hint: "[--repo owner/repo-or-url] [--no-draft] [--wsl]"
 allowed-tools: Bash Read Write Edit Grep Glob
 required-capabilities: shell git github-cli file-read
@@ -16,8 +16,10 @@ invoke `/slang-pr-create`.
 
 **Usage**: `/slang-pr-create [--repo owner/repo-or-url] [--no-draft] [--wsl]`
 
-PRs are created as drafts by default. Use `--no-draft` only when the PR should
-be ready for review immediately. Created PRs are assigned to `@me` by default.
+PRs targeting `shader-slang/*` are created as drafts by default. PRs targeting
+other repositories are created ready for review. Use `--no-draft` only when a
+`shader-slang/*` PR should be ready for review immediately. Created PRs are
+assigned to `@me` by default.
 If the target repository has a `CoPilot` label, add it when creating the PR.
 After creating a draft PR, request CodeRabbit review by commenting
 `@coderabbitai review`. If the target repository is under `shader-slang/`, also
@@ -117,6 +119,13 @@ or `main`:
 REPO_NAME_WITH_OWNER="$("$GH" repo view "$REPO" --json nameWithOwner --jq .nameWithOwner | clean_line)"
 BASE="$("$GH" repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.name | clean_line)"
 BRANCH="$("$GIT" branch --show-current | clean_line)"
+case "$REPO_NAME_WITH_OWNER" in
+  shader-slang/*)
+    ;;
+  *)
+    DRAFT=false
+    ;;
+esac
 ```
 
 Try to determine the full issue references that the PR is intended to fix
@@ -446,19 +455,23 @@ $prCreateArgs = @(
   "--head", $headBranch,
   "--title", "PR title",
   "--body-file", ".\pr-body.md",
-  "--assignee", "@me",
-  "--draft"
-) + $labelArgs
-$prUrl = & $GH @prCreateArgs
-& $GH pr comment $prUrl --body "@coderabbitai review"
+  "--assignee", "@me"
+)
 if ($repoNameWithOwner -like "shader-slang/*") {
+  $prCreateArgs += "--draft"
+}
+$prCreateArgs += $labelArgs
+$prUrl = & $GH @prCreateArgs
+if ($repoNameWithOwner -like "shader-slang/*") {
+  & $GH pr comment $prUrl --body "@coderabbitai review"
   & $GH pr comment $prUrl --body "/ci all"
 }
 $prUrl
 ```
 
-Omit `--draft` only if the user passes `--no-draft` or explicitly requests a PR
-that is ready for review.
+Omit `--draft` for non-`shader-slang/*` targets. Also omit it if the user passes
+`--no-draft` or explicitly requests a `shader-slang/*` PR that is ready for
+review.
 
 ## After Creation
 
