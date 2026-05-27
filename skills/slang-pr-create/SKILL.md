@@ -444,7 +444,7 @@ $hasCopilotLabel = & $GH label list `
   --search "CoPilot" `
   --limit 100 `
   --json name `
-  --jq ".[].name" 2>$null | Where-Object { $_ -eq "CoPilot" }
+  --jq ".[].name" 2>$null | Where-Object { $_ -ceq "CoPilot" }
 if ($hasCopilotLabel) {
   $labelArgs += @("--label", "CoPilot")
 }
