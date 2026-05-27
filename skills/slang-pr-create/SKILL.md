@@ -20,9 +20,9 @@ even when the user does not explicitly invoke `/slang-pr-create`.
 PRs targeting `shader-slang/*` are created as drafts by default. PRs targeting
 other repositories are created ready for review. Use `--no-draft` only when a
 `shader-slang/*` PR should be ready for review immediately. Created PRs are
-assigned to `@me` by default. Only pass labels that are present in the target
-repository. If the target repository has a `CoPilot` label, add it when creating
-the PR.
+assigned to `@me` by default.
+Only pass labels that are present in the target repository. If the target
+repository has a `CoPilot` label, add it when creating the PR.
 After creating a draft PR, request CodeRabbit review by commenting
 `@coderabbitai review`. If the target repository is under `shader-slang/`, also
 post `/ci all` to trigger CI.
@@ -617,7 +617,11 @@ if ($breakingChange -and -not $hasBreakingChangeSection) {
   throw "Breaking PRs must include a '## Breaking change' section in the PR body."
 }
 $labelArgs = @()
-$labelNames = @(& $GH label list --repo $repo --limit 1000 --json name --jq ".[].name")
+$labelNames = @(& $GH label list `
+  --repo $repoNameWithOwner `
+  --limit 1000 `
+  --json name `
+  --jq ".[].name" 2>$null)
 function Add-LabelIfAvailable {
   param([string]$LabelName)
   if ($labelNames | Where-Object { $_ -ceq $LabelName }) {
