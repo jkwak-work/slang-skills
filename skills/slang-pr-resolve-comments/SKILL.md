@@ -118,7 +118,7 @@ Repeat this workflow periodically until the PR has no unresolved, non-outdated L
 3. Fix actionable review feedback and CI failures.
 4. Commit PR modifications as new commits and push them to the PR branch.
 5. After pushing new commits, update the PR description if the new commits made it stale or inaccurate (see **PR Description Updates** below).
-6. Reply to addressed LLM and human review feedback.
+6. Reply to LLM and human review feedback addressed in this pass.
 7. Resolve only the LLM-owned threads that have been addressed. Leave human-owned threads unresolved for the human reviewer to resolve manually.
 8. At the end of each pass, check the Completion Criteria below:
    - If **all criteria are met**: report the PR is clean and **do not reschedule** — the loop is done.
@@ -257,7 +257,7 @@ For each unresolved, non-outdated (`isResolved = false` and `isOutdated = false`
    build, require `slangc.exe` and `slang-test.exe` and do not fall back to
    WSL-native binaries.
 4. Push the fix if code changed.
-5. Reply on the thread with what changed, what validation ran, or why no code change was needed. **Always start the reply body with `[Agent] `** so readers can distinguish agent-posted comments from comments left by the human account owner.
+5. Reply on the thread with what changed, what validation ran, or why no code change was needed. **Always start the reply body with `[Agent]` followed by a space** so readers can distinguish agent-posted comments from comments left by the human account owner.
 6. Resolve the thread only after the reply is posted and the issue is actually addressed.
 
 Reply to an LLM or human thread:
@@ -284,14 +284,14 @@ mutation($thread:ID!) {
 
 For each unresolved, non-outdated (`isResolved = false` and `isOutdated = false`) human thread:
 
-1. Read the full thread and relevant code. If an existing `[Agent]` reply already addresses the latest human request and no later human comment asks for more work, treat the thread as addressed: do not add a duplicate reply and do not resolve the thread.
+1. Read the full thread and relevant code. If an existing `[Agent]` reply already addresses the latest human request and no later human comment asks for more work, treat the thread as addressed: skip the remaining steps for this thread, do not add a duplicate reply, and do not resolve the thread.
 2. Apply the fix, or determine that the suggestion is invalid with evidence.
 3. Run focused validation. For Slang compiler/test invocations, use the
    `slang-run-tests` binary selection rule: under WSL with a Windows-hosted
    build, require `slangc.exe` and `slang-test.exe` and do not fall back to
    WSL-native binaries.
 4. Push the fix if code changed.
-5. Reply on the thread with what changed, what validation ran, or why no code change was needed. **Always start the reply body with `[Agent] `** so readers can distinguish agent-posted comments from comments left by the human account owner.
+5. Reply on the thread with what changed, what validation ran, or why no code change was needed. **Always start the reply body with `[Agent]` followed by a space** so readers can distinguish agent-posted comments from comments left by the human account owner.
 6. Do **not** resolve the thread. Ask the human reviewer to resolve it if satisfied.
 
 If `pageInfo.hasNextPage` is true, paginate and inspect every review thread before deciding that the PR has no remaining feedback.
