@@ -164,7 +164,7 @@ Repeat this workflow periodically until the PR is merged or closed. Each pass re
 5. Commit PR modifications as new commits and push them to the PR branch.
 6. After pushing new commits, update the PR description if the new commits made it stale or inaccurate (see **PR Description Updates** below).
 7. Reply to LLM review feedback and resolve only the LLM-owned threads that have been addressed.
-8. Leave human-owned threads unresolved for the human reviewer to resolve manually, and record any specific reviewer directives — from human or LLM reviewers — in the PR description (see **Recording Reviewer Directives** below) so they are not reverted on a later pass.
+8. Address every human-owned comment — make the change, give a reasoned reply, or ask a clarifying question when the intent is unclear (never guess or skip one) — then leave the thread unresolved for the human reviewer to resolve manually. Record any specific reviewer directives — from human or LLM reviewers — in the PR description (see **Recording Reviewer Directives** below) so they are not reverted on a later pass. See **Review Threads** below for details.
 9. At the end of each pass, check the Completion Criteria below:
    - If the PR is **merged or closed**: report the outcome and **do not reschedule** — the loop is done.
    - Otherwise the PR is still open: schedule or request the next pass as described below — a short interval if agent-actionable work remains, a long 1–2 h interval if the PR is clean/approved and only waiting on a human — then return. The next pass re-enters this skill with the same PR argument.
@@ -360,7 +360,11 @@ mutation($thread:ID!) {
 }'
 ```
 
-For human threads, do not mark them resolved. If you fixed the issue, reply with a concise summary and ask the reviewer to resolve the thread if satisfied. **Always start the reply body with `[Agent] `** so readers can distinguish agent-posted comments from comments left by the human account owner. If a human thread contains a specific directive about what the PR should or should not contain (e.g. "don't add tests for this"), also record it in the PR description per **Recording Reviewer Directives** below so it is not silently reverted later.
+**Every human review comment must be addressed — never skip or silently ignore one.** "Addressed" means you either made the requested change, or replied with a concrete reason why no change was made (e.g. evidence the suggestion is already satisfied or incorrect), or asked a clarifying question (see below). Leaving a human comment with no agent action and no reply is not acceptable.
+
+**If the requested action or the reviewer's intent is unclear, do not guess.** Reply on the thread with a specific clarifying question — state your current understanding, the options you see, and exactly what you need the reviewer to confirm — and wait for the human's answer before making a change that could be wrong. An unanswered clarifying question keeps the thread actionable, so the loop keeps watching (it is not a blocker that stops the loop; it just means the work is not yet complete).
+
+**Do not mark human threads resolved yourself.** Resolution is the human reviewer's decision: after you address the comment, reply with a concise summary and ask the reviewer to resolve the thread if satisfied. **Always start the reply body with `[Agent] `** so readers can distinguish agent-posted comments from comments left by the human account owner. If a human thread contains a specific directive about what the PR should or should not contain (e.g. "don't add tests for this"), also record it in the PR description per **Recording Reviewer Directives** below so it is not silently reverted later.
 
 If `pageInfo.hasNextPage` is true, paginate and inspect every review thread before deciding that the PR has no remaining feedback.
 For pagination, repeat the query adding `-F after="$END_CURSOR"` (using the value from `pageInfo.endCursor`) to the `$GH api graphql` command, with `reviewThreads(first:100, after:$after)` in the query.
@@ -528,13 +532,13 @@ Check the terminal condition every pass:
 
 **Otherwise the PR is still `OPEN` — keep watching.** Choose the next interval by how much actionable work remains:
 
-- **Short interval (~240s, see "Choosing `<interval>`" above)** when there is agent-actionable work pending: required checks failing or still running, unresolved non-outdated LLM review threads, `mergeStateStatus` is `DIRTY` (merge conflicts) or `UNKNOWN` (still calculating), unpushed local commits, or a human/user change-request to address.
+- **Short interval (~240s, see "Choosing `<interval>`" above)** when there is agent-actionable work pending: required checks failing or still running, unresolved non-outdated LLM review threads, **any human review comment not yet addressed** (no change made, no reply, or you owe an answer to your own clarifying question), `mergeStateStatus` is `DIRTY` (merge conflicts) or `UNKNOWN` (still calculating), unpushed local commits, or a human/user change-request to address. Every human comment must be addressed before the PR can be considered clean.
 - **Long interval (1–2 hours, `delaySeconds` of `3600`–`7200`, clamped to the host's maximum)** when there is no agent-actionable work left and the PR is just waiting — e.g. it is approved/LGTM, all required checks pass, no open LLM threads, and it is only waiting on a human merge or further human review. This slow-watch mode catches late human feedback without burning wakeups.
 
 In either case, schedule a non-blocking follow-up when the agent host supports one, then return. The next pass re-enters this skill with the same PR argument. If a single-pass run was requested (`--single-pass` or `SINGLE_PASS=true`) or scheduling is unavailable, report the current state, when to check again (short vs. long interval), and the exact rerun prompt/command instead of scheduling, then return.
 
 **The following are not terminal and do not stop the loop** — they only mean the slow-watch (long) interval applies if nothing else is actionable:
 
-1. **Unresolved human review threads**: human-owned threads are outside the agent's control. Report "PR is ready — waiting for human reviewers to resolve N thread(s)" and keep slow-watching until the PR merges or closes.
+1. **Human review threads the agent has already addressed but that remain unresolved**: marking them resolved is the human's decision, not the agent's. Report "PR is ready — waiting for human reviewers to resolve N thread(s)" and keep slow-watching until the PR merges or closes. This applies only once every human comment has been addressed (change made, reasoned reply, or a clarifying question posted) — an unaddressed human comment is actionable work, not a "waiting on human" state.
 2. **Approved / LGTM**: report it, make no discretionary changes, and slow-watch for later human feedback (see **Approval / LGTM Signal** above). Approval is not merge — only `MERGED`/`CLOSED` ends the loop.
 3. **Draft/WIP/DNI/DNM status and readiness notices**: report them as context, but do not stop or treat them as blockers.
