@@ -1,6 +1,6 @@
 ---
 name: slang-pr-resolve-comments
-description: Resolve GitHub PR review feedback and CI failures. Use when asked to monitor a PR, handle LLM review threads, report draft/WIP/DNI status and review-readiness notices without treating them as blockers, leave human review threads for human resolution, fix failing checks, rebase merge conflicts, and push updates until no agent-actionable work remains.
+description: Resolve GitHub PR review feedback and CI failures. Use when asked to monitor a PR, handle LLM review threads, report draft/WIP/DNI status and review-readiness notices without treating them as blockers, leave human review threads for human resolution, record specific reviewer directives (from human or LLM reviewers) in the PR description so they are not reverted on later passes, be conservative about edits once the PR is approved/LGTM, fix failing checks, rebase merge conflicts, and keep watching until the PR is merged or closed.
 argument-hint: "<PR URL or number> [--single-pass] [--wsl]"
 allowed-tools: Bash Read Write Edit Grep Glob ScheduleWakeup
 required-capabilities: shell git github-cli file-read file-edit search
@@ -8,7 +8,50 @@ required-capabilities: shell git github-cli file-read file-edit search
 
 # Resolve GitHub Review Feedback
 
-Use this skill to keep a GitHub PR moving until all CI checks pass and LLM review threads have been addressed and resolved by the agent. Human-owned threads are left unresolved — they are outside the agent's control and must be resolved by the human reviewers themselves.
+Use this skill to keep a GitHub PR moving until it is merged or closed: each pass makes CI checks pass and addresses and resolves LLM review threads, and once no agent-actionable work remains the skill keeps watching at a slower cadence for later human feedback. Human-owned threads are left unresolved — they are outside the agent's control and must be resolved by the human reviewers themselves.
+
+## Workflow Overview
+
+The diagram below summarizes the full flow. Each later section documents the details; this is the map.
+
+```mermaid
+flowchart TD
+    Start([Invoke skill with PR arg]) --> Parse[Parse args: PR, --single-pass, --wsl<br/>select git/gh tools]
+    Parse --> Auth{gh auth OK &<br/>push permission?}
+    Auth -->|No| StopBlocked([Stop: report missing credentials])
+    Auth -->|Yes| Dirty{Local working<br/>tree dirty?}
+    Dirty -->|Yes| AskUser[Ask user: commit / stash / abort]
+    AskUser --> Loop
+    Dirty -->|No| Loop
+
+    subgraph Loop [Main Loop - one pass]
+        Checkout[Checkout PR branch, fetch,<br/>submodule update] --> Inspect[Inspect state, checks, mergeability,<br/>readiness notices, review threads]
+        Inspect --> Approved{Approval / LGTM<br/>signal present?}
+
+        Approved -->|Yes| ChangesReq{Human requested changes,<br/>user asked, or required CI<br/>fix needed?}
+        ChangesReq -->|No| NoEdit[Be conservative:<br/>make no discretionary edits]
+        ChangesReq -->|Yes| Work
+        Approved -->|No| Work
+
+        Work[Fix actionable review feedback and CI failures<br/>respecting recorded reviewer directives] --> Conflict{Merge conflicts<br/>DIRTY?}
+        Conflict -->|Yes| Rebase[Rebase onto base, resolve,<br/>submodule update]
+        Conflict -->|No| Commit
+        Rebase --> Commit[Commit as new commits<br/>and push]
+        Commit --> Desc[Update PR description if stale;<br/>record reviewer directives]
+        Desc --> Threads[Reply to LLM threads & resolve addressed ones;<br/>leave human threads; log reviewer directives]
+        NoEdit --> Threads
+    end
+
+    Threads --> Merged{PR state<br/>MERGED or CLOSED?}
+    Merged -->|Yes| Done([Stop: report merged/closed - loop done])
+    Merged -->|No - still OPEN| Actionable{Agent-actionable work left?<br/>failing/running checks, open LLM threads,<br/>DIRTY/UNKNOWN, unpushed, change-request}
+    Actionable -->|Yes| ShortInt[Pick short interval ~240s]
+    Actionable -->|No - clean/approved/<br/>waiting on human| LongInt[Pick long interval 3600-7200 - 1-2h]
+    ShortInt --> SinglePass{--single-pass or<br/>no scheduler?}
+    LongInt --> SinglePass
+    SinglePass -->|Yes| Report([Report state + check-back time + rerun command, return])
+    SinglePass -->|No| Schedule[Schedule non-blocking follow-up<br/>delaySeconds = chosen interval] --> NextPass([Return; next wakeup re-enters loop])
+```
 
 ## Agent Compatibility
 
@@ -102,7 +145,7 @@ Wait for the user's choice before continuing.
 
 ## Main Loop
 
-Repeat this workflow periodically until the PR has no unresolved, non-outdated LLM-owned review feedback and all required checks pass. Between iterations, **do not use `sleep`** or block the live session. Use the current agent host's non-blocking follow-up facility when one exists; otherwise report the pending state and the exact prompt/command the user or orchestrator should rerun later, then return.
+Repeat this workflow periodically until the PR is merged or closed. Each pass resolves agent-actionable work (CI failures, LLM review threads, merge conflicts); once none remains the loop keeps watching at a slower cadence for later human feedback until the PR finally merges or closes (see **Completion Criteria** below). Between iterations, **do not use `sleep`** or block the live session. Use the current agent host's non-blocking follow-up facility when one exists; otherwise report the pending state and the exact prompt/command the user or orchestrator should rerun later, then return.
 
 1. Check out the PR branch:
 
@@ -115,14 +158,15 @@ Repeat this workflow periodically until the PR has no unresolved, non-outdated L
    This repo uses git submodules. Run `"$GIT" submodule update --init --recursive` after any update to the local branch — e.g. `"$GH" pr checkout`, `"$GIT" pull`, or `"$GIT" rebase` (and again after resolving merge conflicts — see below) — so submodule references stay in sync with the checked-out commit. A bare fetch only updates remote-tracking refs and does not require a submodule sync on its own.
 
 2. Inspect PR state, checks, mergeability, review-readiness notices, and review threads.
-3. Fix actionable review feedback and CI failures.
-4. Commit PR modifications as new commits and push them to the PR branch.
-5. After pushing new commits, update the PR description if the new commits made it stale or inaccurate (see **PR Description Updates** below).
-6. Reply to LLM review feedback and resolve only the LLM-owned threads that have been addressed.
-7. Leave human-owned threads unresolved for the human reviewer to resolve manually.
-8. At the end of each pass, check the Completion Criteria below:
-   - If **all criteria are met**: report the PR is clean and **do not reschedule** — the loop is done.
-   - Otherwise: schedule or request the next pass as described below, then return. The next pass should re-enter this skill with the same PR argument.
+3. Check for an approval / LGTM signal (see **Approval / LGTM Signal** below). If one is present, be conservative about further edits — modify the code only with a strong justification (e.g. a human reviewer requested changes), as described in that section.
+4. Fix actionable review feedback and CI failures.
+5. Commit PR modifications as new commits and push them to the PR branch.
+6. After pushing new commits, update the PR description if the new commits made it stale or inaccurate (see **PR Description Updates** below).
+7. Reply to LLM review feedback and resolve only the LLM-owned threads that have been addressed.
+8. Leave human-owned threads unresolved for the human reviewer to resolve manually, and record any specific reviewer directives — from human or LLM reviewers — in the PR description (see **Recording Reviewer Directives** below) so they are not reverted on a later pass.
+9. At the end of each pass, check the Completion Criteria below:
+   - If the PR is **merged or closed**: report the outcome and **do not reschedule** — the loop is done.
+   - Otherwise the PR is still open: schedule or request the next pass as described below — a short interval if agent-actionable work remains, a long 1–2 h interval if the PR is clean/approved and only waiting on a human — then return. The next pass re-enters this skill with the same PR argument.
 
 Stop (do not reschedule) only if blocked by missing credentials, missing push permission, an ambiguous human decision, or local changes that cannot be safely preserved.
 Draft status, WIP/DNI/DNM-style title markers, and LLM skipped-review notices are not blockers by themselves.
@@ -168,6 +212,38 @@ If an LLM left a review-readiness notice:
 3. Do not treat the message as code feedback, and do not mark the thread resolved on behalf of the user.
 4. Continue with the normal workflow. Do not stop, reschedule, or withhold success solely because the PR remains draft, the title contains WIP/DNI/DNM-style wording, or an LLM left a skipped-review notice.
 
+## Approval / LGTM Signal
+
+Once the PR has been approved, **be conservative about modifying the code.** An approval means the reviewers are satisfied with the current state, and further automated edits could invalidate that approval or introduce unwanted changes. This is a strong bias against editing, not an absolute stop — make changes only when there is a clear justification (see below).
+
+Detect an approval signal in two ways:
+
+1. **Formal GitHub approval** — the PR's review decision or a reviewer's review state is `APPROVED`:
+
+   ```bash
+   "$GH" pr view "$PR" --json reviewDecision --jq .reviewDecision
+   "$GH" pr view "$PR" --json reviews --jq '.reviews[] | {author: .author.login, state: .state}'
+   ```
+
+   Treat the PR as approved when `reviewDecision` is `APPROVED`, or when any reviewer's latest review `state` is `APPROVED`.
+
+2. **Informal approval phrases** — a review comment, review body, or review thread from a human reviewer that clearly signals approval, such as `LGTM`, `Looks good to me`, `Approved`, `Ship it`, or an equivalent. Match case-insensitively. Only count these from human reviewers (per the **Review Threads** classification) — ignore such phrases echoed by the PR author, bots, or LLM reviewers.
+
+When an approval signal is present, default to **not** making further code changes:
+
+1. Do not push new commits or rebase unless GitHub reports merge conflicts that block merge.
+2. Finish any already-pushed, in-flight work (e.g., wait for running CI on commits you already pushed), but do not start speculative or stylistic edits.
+3. Reply to and resolve any remaining addressed LLM threads as usual, then report that the PR is approved.
+4. **Keep watching, but slowly.** An approval is not the end — later human review feedback can still arrive and may request changes. Do not stop the loop on approval. Instead, reschedule the next pass with a **long interval of 1–2 hours** (`delaySeconds` of `3600`–`7200`, clamped to the host's maximum) instead of the normal short polling interval. This long-poll mode trades a cold context cache for far fewer wakeups while waiting on humans. Continue this slow watch until the PR is merged/closed, the user tells you to stop, or new feedback arrives that pulls you back into the normal workflow. If `--single-pass` was requested or no scheduler exists, report the approved state, when to check again (1–2 hours), and the exact rerun command instead of scheduling.
+
+**Strong justifications that override the approval bias** — modify the code even when the PR is approved/LGTM when any of these apply:
+
+- **A human reviewer has requested changes.** A human change-request always wins over an approval/LGTM signal: the requested changes must be made. This holds whether the change-request is a formal `CHANGES_REQUESTED` review (`reviewDecision` is `CHANGES_REQUESTED`, or a reviewer's latest review `state` is `CHANGES_REQUESTED`) or a clear human request in a comment or thread. When a newer human review or comment supersedes an earlier approval, follow the newer one.
+- The user explicitly asks for a change.
+- A required CI check is failing and the fix is necessary for the PR to merge — make the minimal fix and note that it may dismiss the approval.
+
+If none of these apply, leave the approved code as-is rather than making discretionary edits. When in doubt about whether an edit is justified on an approved PR, prefer to report the situation to the user rather than editing.
+
 ## Commit Policy
 
 When the PR is modified for any reason, preserve the change history by creating a new commit for the modification. Do not use `"$GIT" commit --amend` for review fixes, CI fixes, conflict-resolution follow-up edits, formatting changes, or any other PR update.
@@ -199,7 +275,7 @@ Fetch the current description, edit it, and push the update with `$GH`:
 "$GH" pr edit "$PR" --body-file /tmp/pr-body.md
 ```
 
-Preserve any existing sections (summary, test plan, generated-by footers, issue links) unless they are now inaccurate. Do not rewrite the description from scratch when a targeted edit will do.
+Preserve any existing sections (summary, test plan, generated-by footers, issue links, the **Reviewer Directives** section) unless they are now inaccurate. Do not rewrite the description from scratch when a targeted edit will do. Never drop a recorded reviewer directive during a routine description update — see **Recording Reviewer Directives** below.
 
 ## Review Threads
 
@@ -259,6 +335,7 @@ For each unresolved, non-outdated (`isResolved = false` and `isOutdated = false`
 4. Push the fix if code changed.
 5. Reply on the thread with what changed, what validation ran, or why no code change was needed. **Always start the reply body with `[Agent] `** so readers can distinguish agent-posted comments from comments left by the human account owner.
 6. Resolve the thread only after the reply is posted and the issue is actually addressed.
+7. If the LLM's suggestion established a durable decision worth protecting from later reversal (e.g. "intentionally don't do X here"), record it in the PR description per **Recording Reviewer Directives** below, tagged as an LLM-sourced directive.
 
 Reply to an LLM thread:
 
@@ -282,10 +359,35 @@ mutation($thread:ID!) {
 }'
 ```
 
-For human threads, do not mark them resolved. If you fixed the issue, reply with a concise summary and ask the reviewer to resolve the thread if satisfied. **Always start the reply body with `[Agent] `** so readers can distinguish agent-posted comments from comments left by the human account owner.
+For human threads, do not mark them resolved. If you fixed the issue, reply with a concise summary and ask the reviewer to resolve the thread if satisfied. **Always start the reply body with `[Agent] `** so readers can distinguish agent-posted comments from comments left by the human account owner. If a human thread contains a specific directive about what the PR should or should not contain (e.g. "don't add tests for this"), also record it in the PR description per **Recording Reviewer Directives** below so it is not silently reverted later.
 
 If `pageInfo.hasNextPage` is true, paginate and inspect every review thread before deciding that the PR has no remaining feedback.
 For pagination, repeat the query adding `-F after="$END_CURSOR"` (using the value from `pageInfo.endCursor`) to the `$GH api graphql` command, with `reviewThreads(first:100, after:$after)` in the query.
+
+## Recording Reviewer Directives
+
+When a reviewer — **human or LLM** — makes a specific directive about how this PR should (or should not) be implemented, and you have adopted it, record it as a durable note in the **PR description**, not just in the thread reply. Directives are constraints such as "do not add tests for this change", "keep this function as-is", "don't refactor X", or "leave Y out of scope". A good LLM suggestion that establishes a durable decision belongs here too — the goal is to capture standing decisions regardless of who proposed them.
+
+This is required because review threads are easy for the next reviewer to miss. A directive that lives only in a comment can be silently undone later: for example, a reviewer asks not to add test cases for a change and the agent removes them, but on a later pass another reviewer flags the now-missing lines as a coverage gap, and the agent re-adds the very tests that were rejected. Persisting the directive in the description keeps it visible to every reviewer — including LLM reviewers that only read the current description and diff and do not replay the full comment history — so the same unwanted change does not keep coming back.
+
+Maintain a dedicated section in the PR description titled **`## Reviewer Directives (maintained by agent)`**. Use this exact heading so the section is found and updated consistently across passes. Note the source on each entry, since human directives take precedence (see below):
+
+```markdown
+## Reviewer Directives (maintained by agent)
+
+- [human @reviewer-login] Do not add test cases for the `<feature>` change — intentionally untested per review. (<comment URL>)
+- [LLM CodeRabbit] Keep `<function>` unchanged; refactor is out of scope for this PR. (<comment URL>)
+```
+
+When recording and honoring directives:
+
+1. **Add an entry** when any reviewer states a specific, durable constraint on the PR's contents that you adopt. Capture the source (human login, or the LLM reviewer's name), the directive in your own concise words, and a link to the originating comment. Apply the directive to the code in the same pass.
+2. **Record from human or LLM reviewers.** Human reviewers' directives are recorded as stated. Record an LLM reviewer's suggestion as a directive once you adopt it as a standing decision (don't pre-record every LLM comment — only durable constraints worth protecting). Tag each entry with its source. (Per the **Review Threads** classification, treat `author: null` as human.)
+3. **Treat recorded directives as standing constraints on every later pass.** Before making any change suggested by another reviewer or CI, check it against the recorded directives. **Do not undo a recorded directive to satisfy a later conflicting suggestion or a coverage check.**
+4. **When a thread conflicts with a recorded directive**, do not make the change. Reply to that thread (starting with `[Agent] `) explaining that the behavior is intentional per the recorded directive, link to the description section, and resolve the thread as addressed.
+5. **Human directives outrank LLM directives.** If a human directive conflicts with a recorded LLM directive, follow the human: update or remove the LLM entry, note the change, and apply the human's instruction. Never override or silently drop a human directive to satisfy an LLM one.
+6. **Keep the section accurate.** Remove or update an entry only when a reviewer of equal-or-higher precedence (or the user) explicitly lifts or changes the directive; note who lifted it. Do not silently drop directives.
+6. Edit the description using the same fetch/edit/push flow in **PR Description Updates** above, preserving all other sections.
 
 ## CI Failures
 
@@ -410,18 +512,28 @@ fi
 
 ## Completion Criteria
 
-After every pass, evaluate whether to stop or reschedule:
+**The loop terminates only when the PR is merged or closed.** Everything else is a question of how soon to run the next pass, not whether to stop. As long as the PR is open, there may still be work to do or later human feedback to catch, so the agent keeps watching.
 
-**Stop and report success** when all of these are true — do not schedule another pass:
+Check the terminal condition every pass:
 
-- `"$GH" pr checks "$PR"` shows all required checks passing.
-- There are no unresolved, non-outdated LLM review threads.
-- `"$GH" pr view "$PR" --json mergeStateStatus --jq .mergeStateStatus` does not report `DIRTY` (actual merge conflicts) or `UNKNOWN` (still calculating). A status of `BEHIND` (branch is behind base but no conflicts) is acceptable — GitHub auto-merge handles it.
-- All local commits needed for the fixes have been pushed to the PR branch.
+```bash
+"$GH" pr view "$PR" --json state --jq .state
+```
 
-**Continue later** when any of the above is not yet true. If a single-pass run was requested (`--single-pass` or `SINGLE_PASS=true`) or scheduling is unavailable, report what is still pending, when to check again, and the exact rerun prompt/command, then return. Otherwise, schedule a non-blocking follow-up when the current agent host supports one, using `delaySeconds = <interval>` (see **Choosing `<interval>`** above), then return.
+**Stop and report — do not schedule another pass** when `state` is `MERGED` or `CLOSED`:
 
-**The following conditions are not grounds for rescheduling:**
+- `MERGED`: report that the PR landed; the loop is done.
+- `CLOSED` (not merged): report that the PR was closed without merging and stop. Do not reopen it or push further changes.
 
-1. **Unresolved human review threads**: human-owned threads are outside the agent's control. Stop rescheduling and report "PR is ready — waiting for human reviewers to resolve N thread(s)."
-2. **Draft/WIP/DNI/DNM status and readiness notices**: report them as context, but do not keep polling or delay success solely because the PR is draft, the title contains readiness markers, or an LLM said it skipped review for that reason.
+**Otherwise the PR is still `OPEN` — keep watching.** Choose the next interval by how much actionable work remains:
+
+- **Short interval (~240s, see "Choosing `<interval>`" above)** when there is agent-actionable work pending: required checks failing or still running, unresolved non-outdated LLM review threads, `mergeStateStatus` is `DIRTY` (merge conflicts) or `UNKNOWN` (still calculating), unpushed local commits, or a human/user change-request to address.
+- **Long interval (1–2 hours, `delaySeconds` of `3600`–`7200`, clamped to the host's maximum)** when there is no agent-actionable work left and the PR is just waiting — e.g. it is approved/LGTM, all required checks pass, no open LLM threads, and it is only waiting on a human merge or further human review. This slow-watch mode catches late human feedback without burning wakeups.
+
+In either case, schedule a non-blocking follow-up when the agent host supports one, then return. The next pass re-enters this skill with the same PR argument. If a single-pass run was requested (`--single-pass` or `SINGLE_PASS=true`) or scheduling is unavailable, report the current state, when to check again (short vs. long interval), and the exact rerun prompt/command instead of scheduling, then return.
+
+**The following are not terminal and do not stop the loop** — they only mean the slow-watch (long) interval applies if nothing else is actionable:
+
+1. **Unresolved human review threads**: human-owned threads are outside the agent's control. Report "PR is ready — waiting for human reviewers to resolve N thread(s)" and keep slow-watching until the PR merges or closes.
+2. **Approved / LGTM**: report it, make no discretionary changes, and slow-watch for later human feedback (see **Approval / LGTM Signal** above). Approval is not merge — only `MERGED`/`CLOSED` ends the loop.
+3. **Draft/WIP/DNI/DNM status and readiness notices**: report them as context, but do not stop or treat them as blockers.
