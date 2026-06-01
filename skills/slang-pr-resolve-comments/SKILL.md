@@ -20,8 +20,9 @@ flowchart TD
     Parse --> Auth{gh auth OK &<br/>push permission?}
     Auth -->|No| StopBlocked([Stop: report missing credentials])
     Auth -->|Yes| Dirty{Local working<br/>tree dirty?}
-    Dirty -->|Yes| AskUser[Ask user: commit / stash / abort]
-    AskUser --> Loop
+    Dirty -->|Yes| AskUser{Ask user: commit / stash / abort}
+    AskUser -->|Commit / Stash| Loop
+    AskUser -->|Abort| StopAbort([Stop: user aborted])
     Dirty -->|No| Loop
 
     subgraph Loop [Main Loop - one pass]
@@ -222,7 +223,7 @@ Detect an approval signal in two ways:
 
    ```bash
    "$GH" pr view "$PR" --json reviewDecision --jq .reviewDecision
-   "$GH" pr view "$PR" --json reviews --jq '.reviews[] | {author: .author.login, state: .state}'
+   "$GH" pr view "$PR" --json reviews --jq '.reviews | group_by(.author.login?) | map(last)[] | {author: .author.login?, state: .state}'
    ```
 
    Treat the PR as approved when `reviewDecision` is `APPROVED`, or when any reviewer's latest review `state` is `APPROVED`.
@@ -387,7 +388,7 @@ When recording and honoring directives:
 4. **When a thread conflicts with a recorded directive**, do not make the change. Reply to that thread (starting with `[Agent] `) explaining that the behavior is intentional per the recorded directive, link to the description section, and resolve the thread as addressed.
 5. **Human directives outrank LLM directives.** If a human directive conflicts with a recorded LLM directive, follow the human: update or remove the LLM entry, note the change, and apply the human's instruction. Never override or silently drop a human directive to satisfy an LLM one.
 6. **Keep the section accurate.** Remove or update an entry only when a reviewer of equal-or-higher precedence (or the user) explicitly lifts or changes the directive; note who lifted it. Do not silently drop directives.
-6. Edit the description using the same fetch/edit/push flow in **PR Description Updates** above, preserving all other sections.
+7. Edit the description using the same fetch/edit/push flow in **PR Description Updates** above, preserving all other sections.
 
 ## CI Failures
 
