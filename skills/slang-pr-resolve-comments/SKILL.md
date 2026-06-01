@@ -20,7 +20,7 @@ flowchart TD
     Parse --> Auth{gh auth OK &<br/>push permission?}
     Auth -->|No| StopBlocked([Stop: report missing credentials])
     Auth -->|Yes| EarlyMerged{PR already<br/>MERGED or CLOSED?}
-    EarlyMerged -->|Yes| Done
+    EarlyMerged -->|Yes| Done([Stop: PR merged/closed - loop done])
     EarlyMerged -->|No - OPEN| Dirty{Local working<br/>tree dirty?}
     Dirty -->|Yes| AskUser{Ask user: commit / stash / abort}
     AskUser -->|Commit / Stash| Loop
@@ -49,9 +49,7 @@ flowchart TD
         NoEdit --> Threads
     end
 
-    Threads --> Merged{PR state<br/>MERGED or CLOSED?}
-    Merged -->|Yes| Done([Stop: report merged/closed - loop done])
-    Merged -->|No - still OPEN| Actionable{Agent-actionable work left?<br/>failing/running checks, open LLM threads,<br/>DIRTY/UNKNOWN, unpushed, change-request}
+    Threads --> Actionable{Agent-actionable work left?<br/>failing/running checks, open LLM threads,<br/>DIRTY/UNKNOWN, unpushed, change-request}
     Actionable -->|Yes| ShortInt[Pick short interval ~240s]
     Actionable -->|No - clean/approved/<br/>waiting on human| LongInt[Pick long interval 3600-7200 - 1-2h]
     ShortInt --> SinglePass{--single-pass or<br/>no scheduler?}
@@ -190,9 +188,7 @@ Repeat this workflow periodically until the PR is merged or closed. Each pass re
 7. If this pass pushed a **substantive** commit batch, request fresh LLM reviews for it; skip the request for trivial-only batches (see **Requesting LLM Reviews After Push** below).
 8. Reply to LLM review feedback and resolve only the LLM-owned threads that have been addressed.
 9. Address every human-owned comment — make the change, give a reasoned reply, or ask a clarifying question when the intent is unclear (never guess or skip one) — then leave the thread unresolved for the human reviewer to resolve manually. Record any specific reviewer directives — from human or LLM reviewers — in the PR description (see **Recording Reviewer Directives** below) so they are not reverted on a later pass. See **Review Threads** below for details.
-10. At the end of each pass, check the Completion Criteria below:
-   - If the PR is **merged or closed**: report the outcome and **do not reschedule** — the loop is done.
-   - Otherwise the PR is still open: schedule or request the next pass as described below — a short interval if agent-actionable work remains, a long 1–2 h interval if the PR is clean/approved and only waiting on a human — then return. The next pass re-enters this skill with the same PR argument.
+10. At the end of each pass, consult the Completion Criteria below to pick the next interval and schedule (or request) the next pass — a short interval if agent-actionable work remains, a long 1–2 h interval if the PR is clean/approved and only waiting on a human — then return. The next pass re-enters this skill with the same PR argument. The merged/closed terminal condition is **not** re-checked here: it is handled at the start of the next pass by the early check in **Check before making changes** (a PR that merged or closed between passes stops there).
 
 Stop (do not reschedule) only if blocked by missing credentials, missing push permission, an ambiguous human decision, or local changes that cannot be safely preserved.
 Draft status, WIP/DNI/DNM-style title markers, and LLM skipped-review notices are not blockers by themselves.
@@ -594,20 +590,9 @@ fi
 
 ## Completion Criteria
 
-**The loop terminates only when the PR is merged or closed.** Everything else is a question of how soon to run the next pass, not whether to stop. As long as the PR is open, there may still be work to do or later human feedback to catch, so the agent keeps watching.
+**The loop terminates only when the PR is merged or closed.** That terminal condition is checked at the very start of every pass — before any other work — by the early merged/closed check in **Check before making changes** above (it `exit`s immediately on `MERGED`/`CLOSED`). Because every pass re-enters at that check, there is no separate end-of-pass terminal step: a PR that merges or closes between passes is caught at the next pass's start. Everything below is only about how soon to run the next pass, not whether to stop.
 
-Check the terminal condition every pass:
-
-```bash
-"$GH" pr view "$PR" --json state --jq .state
-```
-
-**Stop and report — do not schedule another pass** when `state` is `MERGED` or `CLOSED`:
-
-- `MERGED`: report that the PR landed; the loop is done.
-- `CLOSED` (not merged): report that the PR was closed without merging and stop. Do not reopen it or push further changes.
-
-**Otherwise the PR is still `OPEN` — keep watching.** Choose the next interval by how much actionable work remains:
+If the PR is still `OPEN`, **keep watching.** Choose the next interval by how much actionable work remains:
 
 - **Short interval (~240s, see "Choosing `<interval>`" above)** when there is agent-actionable work pending: required checks failing or still running, unresolved non-outdated LLM review threads, **any human review comment not yet addressed** (no change made, no reply, or you owe an answer to your own clarifying question), `mergeStateStatus` is `DIRTY` (merge conflicts) or `UNKNOWN` (still calculating), unpushed local commits, a human/user change-request to address, or **a fresh LLM review was requested this pass and its results have not yet been inspected** (`LLM_REVIEW_REQUESTED=true`; see **Requesting LLM Reviews After Push** above). Every human comment must be addressed before the PR can be considered clean.
 - **Long interval (1–2 hours, `delaySeconds` of `3600`–`7200`, clamped to the host's maximum)** when there is no agent-actionable work left and the PR is just waiting — e.g. it is approved/LGTM, all required checks pass, no open LLM threads, and it is only waiting on a human merge or further human review. This slow-watch mode catches late human feedback without burning wakeups. The convergence cap also lands here: once **2** consecutive review rounds have produced only nitpick-level findings, stop requesting further automated reviews, report "remaining items are nitpick-level — ready for human review," and slow-watch instead of re-triggering.
