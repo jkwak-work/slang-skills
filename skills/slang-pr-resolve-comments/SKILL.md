@@ -1,6 +1,6 @@
 ---
 name: slang-pr-resolve-comments
-description: Resolve GitHub PR review feedback and CI failures. Use when asked to monitor a PR, handle LLM review threads, report draft/WIP/DNI status and review-readiness notices without treating them as blockers, leave human review threads for human resolution, record specific reviewer directives (from human or LLM reviewers) in the PR description so they are not reverted on later passes, be conservative about edits once the PR is approved/LGTM, fix failing checks, rebase merge conflicts, and keep watching until the PR is merged or closed.
+description: Resolve GitHub PR review feedback and CI failures. Use when asked to monitor a PR, handle LLM review threads, report draft/WIP/DNI status and review-readiness notices without treating them as blockers, leave human review threads for human resolution, record specific reviewer directives (from human or LLM reviewers) in the PR description so they are not reverted on later passes, request fresh CodeRabbit/Copilot reviews only after substantive pushes (not trivial/lint fixes) and stop after nitpick-only rounds, be conservative about edits once the PR is approved/LGTM, fix failing checks, rebase merge conflicts, and keep watching until the PR is merged or closed.
 argument-hint: "<PR URL or number> [--single-pass] [--wsl]"
 allowed-tools: Bash Read Write Edit Grep Glob ScheduleWakeup
 required-capabilities: shell git github-cli file-read file-edit search
@@ -39,7 +39,11 @@ flowchart TD
         Conflict -->|No| Commit
         Rebase --> Commit[Commit as new commits<br/>and push]
         Commit --> Desc[Update PR description if stale;<br/>record reviewer directives]
-        Desc --> Threads[Reply to LLM threads & resolve addressed ones;<br/>leave human threads; log reviewer directives]
+        Desc --> ReviewReq{Substantive batch<br/>and not yet converged?}
+        ReviewReq -->|Yes| RequestReview[Request fresh CodeRabbit/Copilot review<br/>LLM_REVIEW_REQUESTED=true]
+        ReviewReq -->|No - trivial or nit-only x2| SkipReview[Skip re-request;<br/>rely on auto incremental review]
+        RequestReview --> Threads[Reply to LLM threads & resolve addressed ones;<br/>leave human threads; log reviewer directives]
+        SkipReview --> Threads
         NoEdit --> Threads
     end
 
@@ -163,9 +167,10 @@ Repeat this workflow periodically until the PR is merged or closed. Each pass re
 4. Fix actionable review feedback and CI failures.
 5. Commit PR modifications as new commits and push them to the PR branch.
 6. After pushing new commits, update the PR description if the new commits made it stale or inaccurate (see **PR Description Updates** below).
-7. Reply to LLM review feedback and resolve only the LLM-owned threads that have been addressed.
-8. Address every human-owned comment — make the change, give a reasoned reply, or ask a clarifying question when the intent is unclear (never guess or skip one) — then leave the thread unresolved for the human reviewer to resolve manually. Record any specific reviewer directives — from human or LLM reviewers — in the PR description (see **Recording Reviewer Directives** below) so they are not reverted on a later pass. See **Review Threads** below for details.
-9. At the end of each pass, check the Completion Criteria below:
+7. If this pass pushed a **substantive** commit batch, request fresh LLM reviews for it; skip the request for trivial-only batches (see **Requesting LLM Reviews After Push** below).
+8. Reply to LLM review feedback and resolve only the LLM-owned threads that have been addressed.
+9. Address every human-owned comment — make the change, give a reasoned reply, or ask a clarifying question when the intent is unclear (never guess or skip one) — then leave the thread unresolved for the human reviewer to resolve manually. Record any specific reviewer directives — from human or LLM reviewers — in the PR description (see **Recording Reviewer Directives** below) so they are not reverted on a later pass. See **Review Threads** below for details.
+10. At the end of each pass, check the Completion Criteria below:
    - If the PR is **merged or closed**: report the outcome and **do not reschedule** — the loop is done.
    - Otherwise the PR is still open: schedule or request the next pass as described below — a short interval if agent-actionable work remains, a long 1–2 h interval if the PR is clean/approved and only waiting on a human — then return. The next pass re-enters this skill with the same PR argument.
 
@@ -256,6 +261,58 @@ Use concise commit messages that describe the reason for the follow-up change, f
 "$GIT" commit -m "Address review feedback"
 "$GIT" push
 ```
+
+## Requesting LLM Reviews After Push
+
+After pushing a commit batch, you may request a fresh CodeRabbit and GitHub
+Copilot review so they re-review the new commits. Do **not** request a fresh
+review after every push — doing so for trivial fixes makes reviewers surface a
+new round of nitpicks each time and the loop never converges. Gate the request
+on whether the batch was substantive and whether reviews are still converging.
+
+**Classify each pushed batch:**
+
+- **Substantive** — changes documented behavior, logic, an API or interface,
+  adds/removes/renames content, or resolves merge conflicts that change the PR's
+  scope. These warrant a fresh review.
+- **Trivial** — formatting, markdown-lint, typo or wording tweaks, comment-only
+  edits, and similar changes that do not alter documented behavior. These do not
+  warrant a fresh review request.
+
+**Rules:**
+
+1. **Request a fresh review only after a substantive batch.** For a trivial-only
+   batch, skip the explicit request and rely on the reviewer's automatic
+   incremental review on push. Always still reply to and resolve the addressed
+   LLM threads either way.
+2. **Convergence cap.** Track consecutive review rounds whose only new findings
+   are nitpick- or minor-severity. After **2** such rounds, stop requesting
+   further automated reviews even for borderline batches: address the nits,
+   report "remaining items are nitpick-level — ready for human review," and let
+   the loop drop to slow-watch instead of re-triggering reviews.
+3. **Only a real request forces another pass.** Set `LLM_REVIEW_REQUESTED=true`
+   only when you actually posted a review request this pass. A trivial-only batch
+   that skipped the request does not force an extra inspection pass.
+
+Request the reviews when the gate above says to (CodeRabbit is triggered by PR
+comment; GitHub Copilot by reviewer assignment):
+
+```bash
+LLM_REVIEW_REQUESTED=false
+
+request_llm_reviews_after_push() {
+  pr_ref="$1"
+  "$GH" pr comment "$pr_ref" --body '@coderabbitai review'
+  if ! "$GH" pr edit "$pr_ref" --add-reviewer @copilot; then
+    echo "GitHub Copilot review request failed; continue if Copilot review is not enabled for this repository."
+  fi
+  LLM_REVIEW_REQUESTED=true
+}
+```
+
+If a reviewer app is not installed or a request is unavailable, do not treat that
+alone as a blocker — report which triggers succeeded or failed and keep
+monitoring checks and threads.
 
 ## PR Description Updates
 
@@ -532,8 +589,8 @@ Check the terminal condition every pass:
 
 **Otherwise the PR is still `OPEN` — keep watching.** Choose the next interval by how much actionable work remains:
 
-- **Short interval (~240s, see "Choosing `<interval>`" above)** when there is agent-actionable work pending: required checks failing or still running, unresolved non-outdated LLM review threads, **any human review comment not yet addressed** (no change made, no reply, or you owe an answer to your own clarifying question), `mergeStateStatus` is `DIRTY` (merge conflicts) or `UNKNOWN` (still calculating), unpushed local commits, or a human/user change-request to address. Every human comment must be addressed before the PR can be considered clean.
-- **Long interval (1–2 hours, `delaySeconds` of `3600`–`7200`, clamped to the host's maximum)** when there is no agent-actionable work left and the PR is just waiting — e.g. it is approved/LGTM, all required checks pass, no open LLM threads, and it is only waiting on a human merge or further human review. This slow-watch mode catches late human feedback without burning wakeups.
+- **Short interval (~240s, see "Choosing `<interval>`" above)** when there is agent-actionable work pending: required checks failing or still running, unresolved non-outdated LLM review threads, **any human review comment not yet addressed** (no change made, no reply, or you owe an answer to your own clarifying question), `mergeStateStatus` is `DIRTY` (merge conflicts) or `UNKNOWN` (still calculating), unpushed local commits, a human/user change-request to address, or **a fresh LLM review was requested this pass and its results have not yet been inspected** (`LLM_REVIEW_REQUESTED=true`; see **Requesting LLM Reviews After Push** above). Every human comment must be addressed before the PR can be considered clean.
+- **Long interval (1–2 hours, `delaySeconds` of `3600`–`7200`, clamped to the host's maximum)** when there is no agent-actionable work left and the PR is just waiting — e.g. it is approved/LGTM, all required checks pass, no open LLM threads, and it is only waiting on a human merge or further human review. This slow-watch mode catches late human feedback without burning wakeups. The convergence cap also lands here: once **2** consecutive review rounds have produced only nitpick-level findings, stop requesting further automated reviews, report "remaining items are nitpick-level — ready for human review," and slow-watch instead of re-triggering.
 
 In either case, schedule a non-blocking follow-up when the agent host supports one, then return. The next pass re-enters this skill with the same PR argument. If a single-pass run was requested (`--single-pass` or `SINGLE_PASS=true`) or scheduling is unavailable, report the current state, when to check again (short vs. long interval), and the exact rerun prompt/command instead of scheduling, then return.
 
