@@ -19,7 +19,9 @@ flowchart TD
     Start([Invoke skill with PR arg]) --> Parse[Parse args: PR, --single-pass, --wsl<br/>select git/gh tools]
     Parse --> Auth{gh auth OK &<br/>push permission?}
     Auth -->|No| StopBlocked([Stop: report missing credentials])
-    Auth -->|Yes| Dirty{Local working<br/>tree dirty?}
+    Auth -->|Yes| EarlyMerged{PR already<br/>MERGED or CLOSED?}
+    EarlyMerged -->|Yes| Done
+    EarlyMerged -->|No - OPEN| Dirty{Local working<br/>tree dirty?}
     Dirty -->|Yes| AskUser{Ask user: commit / stash / abort}
     AskUser -->|Commit / Stash| Loop
     AskUser -->|Abort| StopAbort([Stop: user aborted])
@@ -135,6 +137,24 @@ Check before making changes:
 
 ```bash
 "$GH" auth status
+```
+
+**First, check whether the PR is already merged or closed — before inspecting the
+working tree or doing anything else.** A merged or closed PR is the loop's
+terminal state (see **Completion Criteria** below), so there is no reason to
+check out the branch, examine the working tree, or process feedback:
+
+```bash
+PR_STATE="$("$GH" pr view "$PR" --json state --jq .state | clean_line)"
+if [ "$PR_STATE" = "MERGED" ] || [ "$PR_STATE" = "CLOSED" ]; then
+  echo "PR is $PR_STATE — nothing to do. Stopping and not rescheduling."
+  exit 0
+fi
+```
+
+Only if the PR is still `OPEN`, continue with the remaining checks:
+
+```bash
 "$GIT" status --short
 "$GH" pr view "$PR" --json number,title,url,baseRefName,headRefName,headRepository,headRepositoryOwner,mergeStateStatus,isDraft
 ```
